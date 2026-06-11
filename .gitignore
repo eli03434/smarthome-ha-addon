@@ -9,3 +9,5 @@ addon/rootfs/app/server_config.json
 # קבצי מערכת
 *.log
 .DS_Store
+
+.commitmsg.tmp
