@@ -898,7 +898,10 @@ function renderAll() {
 // ── SOCKET.IO ────────────────────────────────────────────
 function connectMQTT() {
   addLog('info','מנסה להתחבר לשרת...');
-  socket = io('https://smarthome-production-c8bf.up.railway.app');
+  // מתחבר לשרת המקומי (אותו origin). הנתיב נגזר מכתובת הדף הנוכחית כדי
+  // לעבוד גם בגישה ישירה (port 3000) וגם דרך Ingress של Home Assistant.
+  const _base = location.pathname.replace(/\/[^/]*$/, '');
+  socket = io({ path: _base + '/socket.io' });
   socket.on('connect', () => {
     addLog('success','מחובר לשרת! המערכת מוכנה.');
     setStatus(true);

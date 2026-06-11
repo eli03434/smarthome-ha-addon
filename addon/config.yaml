@@ -1,5 +1,5 @@
 name: Smart Home Controller
-version: "1.0.2"
+version: "1.0.3"
 slug: smarthome
 description: בקרת בית חכם — ממסרים, תזמון לפי זמנים הלכתיים, ניהול משתמשים והרשאות
 url: https://github.com/eli03434/smarthome-ha-addon
@@ -15,11 +15,16 @@ services:
   - mqtt:need
 # ── גישה ל-API של HA (לשליטה עתידית בכל מכשירי HA, לא רק Tasmota) ──
 homeassistant_api: true
-# ── חשיפת ממשק הבית החכם ──
+# ── Ingress: התוסף מופיע בתפריט הצד של HA, עם אימות מובנה ──
+ingress: true
+ingress_port: 3000
+panel_icon: mdi:home-automation
+panel_title: בית חכם
+# ── חשיפת פורט ישיר (אופציונלי — לגישה גם מחוץ ל-HA, למשל מהטלפון) ──
 ports:
   3000/tcp: 3000
 ports_description:
-  3000/tcp: ממשק הבית החכם (דשבורד בעברית)
+  3000/tcp: ממשק הבית החכם (גישה ישירה, מחוץ ל-Ingress)
 options:
   # סיסמת האדמין הראשוני — חובה לשנות בכל התקנה!
   admin_password: "changeme"

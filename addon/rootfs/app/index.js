@@ -747,6 +747,8 @@ app.get('/yemot', async (req, res) => {
   return res.send(ymResponse(`${action.label()}, בוצע בהצלחה`));
 });
 
+// דף הבית — מגיש את הדשבורד ישירות (עובד גם בגישה ישירה וגם דרך Ingress)
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'smart_home_v3.html')));
 app.get('/dashboard', (req, res) => res.redirect('/smart_home_v3.html'));
 
 app.get('/status', (req, res) => {
