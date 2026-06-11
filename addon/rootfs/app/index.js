@@ -191,10 +191,11 @@ async function haListControllable() {
   return (states || [])
     .filter(s => HA_CONTROLLABLE.test(s.entity_id))
     .map(s => ({
-      entity_id: s.entity_id,
-      domain:    s.entity_id.split('.')[0],
-      name:      (s.attributes && s.attributes.friendly_name) || s.entity_id,
-      state:     s.state,
+      entity_id:  s.entity_id,
+      domain:     s.entity_id.split('.')[0],
+      name:       (s.attributes && s.attributes.friendly_name) || s.entity_id,
+      state:      s.state,
+      attributes: s.attributes || {},
     }))
     .sort((a, b) => a.entity_id.localeCompare(b.entity_id));
 }
@@ -811,52 +812,98 @@ const HA_DISCOVERY_PAGE = `<!DOCTYPE html>
   body{font-family:system-ui,Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px}
   h1{font-size:20px;margin:0 0 4px}
   .sub{color:#94a3b8;font-size:13px;margin-bottom:14px}
-  input{width:100%;padding:10px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#fff;margin-bottom:12px;box-sizing:border-box}
-  table{width:100%;border-collapse:collapse}
-  th,td{text-align:right;padding:8px;border-bottom:1px solid #1e293b;font-size:14px}
-  th{color:#94a3b8;font-weight:600}
-  code{background:#1e293b;padding:2px 6px;border-radius:5px;font-size:12px;cursor:pointer;color:#7dd3fc}
-  .on{color:#4ade80}.off{color:#64748b}
-  button{border:0;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px;margin-inline-start:4px}
-  .b-on{background:#16a34a;color:#fff}.b-off{background:#475569;color:#fff}
+  #q{width:100%;padding:10px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#fff;margin-bottom:12px;box-sizing:border-box}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px;margin-bottom:10px}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .nm{font-weight:600;font-size:15px}
+  code{background:#0f172a;padding:2px 6px;border-radius:5px;font-size:11px;cursor:pointer;color:#7dd3fc}
+  .badge{font-size:11px;background:#334155;padding:2px 6px;border-radius:4px;color:#cbd5e1;margin-inline-start:6px}
+  .st{font-size:13px;white-space:nowrap}.on{color:#4ade80}.off{color:#64748b}
+  .ctrls{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  button{border:0;border-radius:6px;padding:7px 13px;cursor:pointer;font-size:13px}
+  .b-on{background:#16a34a;color:#fff}.b-off{background:#475569;color:#fff}.b-alt{background:#2563eb;color:#fff}
+  .sl{display:flex;align-items:center;gap:8px;font-size:12px;color:#94a3b8;width:100%;margin-top:4px}
+  input[type=range]{flex:1}
+  .tinfo{font-size:13px;color:#cbd5e1;width:100%;margin-bottom:4px}
   .err{background:#7f1d1d;color:#fecaca;padding:12px;border-radius:8px}
-  .badge{font-size:11px;background:#334155;padding:2px 6px;border-radius:4px;color:#cbd5e1}
 </style></head><body>
 <h1>🔌 מכשירי Home Assistant</h1>
-<div class="sub">כל המכשירים שניתן לשלוט בהם. לחץ הדלק/כבה לבדיקה. לחץ על ה-<code>entity_id</code> כדי להעתיק.</div>
+<div class="sub">שליטה מלאה לפי סוג המכשיר. לחץ על ה-<code>entity_id</code> כדי להעתיק.</div>
 <input id="q" placeholder="🔍 חיפוש לפי שם או entity_id...">
 <div id="out">טוען...</div>
 <script>
 const API = location.pathname.replace(/\\/$/,'');
 let ALL = [];
-async function load(){
-  try{
-    const r = await fetch(API + '/entities');
-    const d = await r.json();
-    if(!d.ok){ document.getElementById('out').innerHTML = '<div class="err">שגיאה: '+d.error+'</div>'; return; }
-    ALL = d.entities; render();
-  }catch(e){ document.getElementById('out').innerHTML = '<div class="err">לא ניתן להתחבר ל-HA: '+e.message+'</div>'; }
+const MODE_HE = {off:'כבוי',cool:'קירור',heat:'חימום',auto:'אוטו',dry:'ייבוש',fan_only:'מאוורר',heat_cool:'אוטו'};
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+function btn(label,cls,e,s,k,v){
+  return '<button class="'+cls+'" data-e="'+esc(e)+'" data-s="'+s+'"'+(k?(' data-k="'+k+'" data-v="'+esc(v)+'"'):'')+'>'+label+'</button>';
+}
+function controls(e){
+  const id=e.entity_id, a=e.attributes||{};
+  if(e.domain==='cover'){
+    let h=btn('▲ פתח','b-on',id,'open_cover')+btn('■ עצור','b-off',id,'stop_cover')+btn('▼ סגור','b-off',id,'close_cover');
+    if(a.current_position!=null) h+='<div class="sl">מיקום <input type="range" min="0" max="100" value="'+a.current_position+'" data-e="'+esc(id)+'" data-s="set_cover_position" data-k="position"><span>'+a.current_position+'%</span></div>';
+    return h;
+  }
+  if(e.domain==='climate'){
+    const cur=a.current_temperature, tgt=a.temperature, modes=a.hvac_modes||[];
+    let h='<div class="tinfo">🌡️ נוכחי: '+(cur!=null?cur+'°':'—')+' &nbsp;|&nbsp; יעד: <b>'+(tgt!=null?tgt+'°':'—')+'</b></div>';
+    h+=modes.map(m=>btn(MODE_HE[m]||m,(e.state===m?'b-on':'b-off'),id,'set_hvac_mode','hvac_mode',m)).join('');
+    if(tgt!=null) h+='<div class="sl">'+btn('− טמפ׳','b-alt',id,'set_temperature','temperature',tgt-1)+btn('+ טמפ׳','b-alt',id,'set_temperature','temperature',tgt+1)+'</div>';
+    return h;
+  }
+  if(e.domain==='light'){
+    let h=btn('הדלק','b-on',id,'turn_on')+btn('כבה','b-off',id,'turn_off');
+    const pct=a.brightness!=null?Math.round(a.brightness/2.55):0;
+    h+='<div class="sl">בהירות <input type="range" min="0" max="100" value="'+pct+'" data-e="'+esc(id)+'" data-s="turn_on" data-k="brightness_pct"><span>'+pct+'%</span></div>';
+    return h;
+  }
+  if(e.domain==='fan'){
+    let h=btn('הדלק','b-on',id,'turn_on')+btn('כבה','b-off',id,'turn_off');
+    if(a.percentage!=null) h+='<div class="sl">מהירות <input type="range" min="0" max="100" value="'+a.percentage+'" data-e="'+esc(id)+'" data-s="set_percentage" data-k="percentage"><span>'+a.percentage+'%</span></div>';
+    return h;
+  }
+  if(e.domain==='lock') return btn('🔓 שחרר','b-on',id,'unlock')+btn('🔒 נעל','b-off',id,'lock');
+  if(e.domain==='script') return btn('▶ הפעל','b-on',id,'turn_on');
+  if(e.domain==='automation') return btn('▶ הפעל','b-on',id,'trigger')+btn('הדלק','b-on',id,'turn_on')+btn('כבה','b-off',id,'turn_off');
+  return btn('הדלק','b-on',id,'turn_on')+btn('כבה','b-off',id,'turn_off');
 }
 function render(){
-  const q = document.getElementById('q').value.toLowerCase();
-  const rows = ALL.filter(e => e.name.toLowerCase().includes(q) || e.entity_id.toLowerCase().includes(q));
-  if(!rows.length){ document.getElementById('out').innerHTML = '<p>לא נמצאו מכשירים.</p>'; return; }
-  document.getElementById('out').innerHTML =
-    '<div class="sub">'+rows.length+' מכשירים</div><table><tr><th>שם</th><th>entity_id</th><th>סוג</th><th>מצב</th><th>בדיקה</th></tr>'+
-    rows.map(e=>'<tr><td>'+e.name+'</td><td><code onclick="navigator.clipboard.writeText(\\''+e.entity_id+'\\')">'+e.entity_id+'</code></td>'+
-    '<td><span class="badge">'+e.domain+'</span></td>'+
-    '<td class="'+(e.state==='on'?'on':'off')+'">'+e.state+'</td>'+
-    '<td><button class="b-on" onclick="ctl(\\''+e.entity_id+'\\',true)">הדלק</button>'+
-    '<button class="b-off" onclick="ctl(\\''+e.entity_id+'\\',false)">כבה</button></td></tr>').join('')+'</table>';
+  const q=document.getElementById('q').value.toLowerCase();
+  const rows=ALL.filter(e=>e.name.toLowerCase().includes(q)||e.entity_id.toLowerCase().includes(q));
+  if(!rows.length){ document.getElementById('out').innerHTML='<p>לא נמצאו מכשירים.</p>'; return; }
+  document.getElementById('out').innerHTML='<div class="sub">'+rows.length+' מכשירים</div>'+rows.map(e=>
+    '<div class="card"><div class="top"><div><span class="nm">'+esc(e.name)+'</span><span class="badge">'+e.domain+'</span><br>'+
+    '<code class="cp" data-cp="'+esc(e.entity_id)+'">'+esc(e.entity_id)+'</code></div>'+
+    '<div class="st '+(e.state==='on'?'on':'off')+'">'+esc(e.state)+'</div></div>'+
+    '<div class="ctrls">'+controls(e)+'</div></div>').join('');
 }
-async function ctl(entity_id, on){
+async function svc(entity_id,service,data){
   try{
-    const r = await fetch(API + '/control', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity_id,on})});
-    const d = await r.json();
-    if(!d.ok) alert('שגיאה: '+d.error); else setTimeout(load, 600);
+    const r=await fetch(API+'/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity_id,service,data})});
+    const d=await r.json(); if(!d.ok) alert('שגיאה: '+d.error); else setTimeout(load,800);
   }catch(e){ alert('שגיאה: '+e.message); }
 }
-document.getElementById('q').addEventListener('input', render);
+const out=document.getElementById('out');
+out.addEventListener('click',ev=>{
+  const cp=ev.target.closest('.cp'); if(cp){ navigator.clipboard.writeText(cp.dataset.cp); cp.textContent='✓ הועתק'; setTimeout(()=>cp.textContent=cp.dataset.cp,900); return; }
+  const b=ev.target.closest('button[data-s]'); if(!b) return;
+  const data=b.dataset.k?{[b.dataset.k]:(isNaN(+b.dataset.v)?b.dataset.v:+b.dataset.v)}:null;
+  svc(b.dataset.e,b.dataset.s,data);
+});
+out.addEventListener('change',ev=>{
+  const r=ev.target.closest('input[data-s]'); if(!r) return;
+  svc(r.dataset.e,r.dataset.s,{[r.dataset.k]:+r.value});
+});
+async function load(){
+  try{
+    const r=await fetch(API+'/entities'); const d=await r.json();
+    if(!d.ok){ out.innerHTML='<div class="err">שגיאה: '+d.error+'</div>'; return; }
+    ALL=d.entities; render();
+  }catch(e){ out.innerHTML='<div class="err">לא ניתן להתחבר ל-HA: '+e.message+'</div>'; }
+}
+document.getElementById('q').addEventListener('input',render);
 load();
 </script></body></html>`;
 
@@ -870,10 +917,13 @@ app.get('/ha/entities', async (req, res) => {
 
 app.post('/ha/control', async (req, res) => {
   try {
-    const { entity_id, on } = req.body || {};
+    let { entity_id, service, data, on } = req.body || {};
     if (!entity_id) return res.status(400).json({ ok: false, error: 'חסר entity_id' });
-    await haCallService(entity_id, !!on);
-    addServerLog({ type: 'sent', msg: `🧪 בדיקת HA: ${entity_id} → ${on ? 'ON' : 'OFF'}`, user: 'בדיקה' });
+    // תאימות לאחור: אם נשלח רק on/off ללא service
+    if (!service) service = on ? 'turn_on' : 'turn_off';
+    const domain = entity_id.split('.')[0];
+    await haFetch(`/services/${domain}/${service}`, 'POST', { entity_id, ...(data || {}) });
+    addServerLog({ type: 'sent', msg: `🧪 בדיקת HA: ${entity_id} → ${service}`, user: 'בדיקה' });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
