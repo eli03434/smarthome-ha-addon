@@ -1,0 +1,40 @@
+name: Smart Home Controller
+version: "1.0.1"
+slug: smarthome
+description: בקרת בית חכם — ממסרים, תזמון לפי זמנים הלכתיים, ניהול משתמשים והרשאות
+url: https://github.com/eli03434/smarthome-ha-addon
+# ── ארכיטקטורות נתמכות (Raspberry Pi = aarch64/armv7) ──
+arch:
+  - aarch64
+  - amd64
+  - armv7
+  - armhf
+  - i386
+startup: application
+boot: auto
+init: false
+# ── שירות MQTT המקומי של HA (Mosquitto) מוזרק אוטומטית ──
+services:
+  - mqtt:need
+# ── גישה ל-API של HA (לשליטה עתידית בכל מכשירי HA, לא רק Tasmota) ──
+homeassistant_api: true
+# ── חשיפת ממשק הבית החכם ──
+ports:
+  3000/tcp: 3000
+ports_description:
+  3000/tcp: ממשק הבית החכם (דשבורד בעברית)
+options:
+  # סיסמת האדמין הראשוני — חובה לשנות בכל התקנה!
+  admin_password: "changeme"
+  # מספרי טלפון מורשים לשליטה דרך "ימות המשיח", מופרדים בפסיק (אופציונלי)
+  allowed_phones: ""
+  # מיגרציה מהמערכת הישנה (GitHub) — השאר ריק לשמירה מקומית בלבד
+  github_token: ""
+  github_owner: ""
+  github_repo: ""
+schema:
+  admin_password: password
+  allowed_phones: str?
+  github_token: str?
+  github_owner: str?
+  github_repo: str?

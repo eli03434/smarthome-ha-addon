@@ -1,0 +1,5 @@
+# סקריפטים של Linux חייבים סופי-שורה מסוג LF (לא CRLF של Windows),
+# אחרת ה-Add-on לא ירוץ בתוך הקונטיינר.
+*.sh   text eol=lf
+run.sh text eol=lf
+Dockerfile text eol=lf

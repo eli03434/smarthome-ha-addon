@@ -1,0 +1,11 @@
+# תלויות Node (מותקנות בתוך הקונטיינר, לא נשמרות ב-git)
+node_modules/
+addon/rootfs/app/node_modules/
+
+# הגדרות זמן-ריצה (נוצרות בכל התקנה)
+server_config.json
+addon/rootfs/app/server_config.json
+
+# קבצי מערכת
+*.log
+.DS_Store
