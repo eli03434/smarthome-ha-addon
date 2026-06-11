@@ -1,5 +1,5 @@
 name: Smart Home Controller
-version: "1.0.3"
+version: "1.0.4"
 slug: smarthome
 description: בקרת בית חכם — ממסרים, תזמון לפי זמנים הלכתיים, ניהול משתמשים והרשאות
 url: https://github.com/eli03434/smarthome-ha-addon

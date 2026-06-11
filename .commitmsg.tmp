@@ -1,0 +1,6 @@
+תיקון כשל בנייה — החזרת build.yaml (1.0.4)
+
+הסרת build.yaml ב-1.0.2 גרמה ל-BUILD_FROM ריק וכשל בבנייה.
+מחזירים אותו (aarch64 + amd64). אזהרת ה-deprecation קוסמטית ולא מזיקה.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
