@@ -158,6 +158,47 @@ async function loadConfig() {
   }
 }
 
+// ── HOME ASSISTANT API ───────────────────────────────────
+// התוסף ניגש ל-HA דרך ה-Supervisor (homeassistant_api: true).
+// הטוקן מוזרק אוטומטית כ-SUPERVISOR_TOKEN.
+const HA_URL   = 'http://supervisor/core/api';
+const HA_TOKEN = process.env.SUPERVISOR_TOKEN || '';
+
+async function haFetch(pathname, method = 'GET', body = null) {
+  if (typeof fetch !== 'function') throw new Error('fetch לא זמין (Node ישן מדי)');
+  if (!HA_TOKEN) throw new Error('אין SUPERVISOR_TOKEN — הרשאת HA חסרה');
+  const res = await fetch(`${HA_URL}${pathname}`, {
+    method,
+    headers: { Authorization: `Bearer ${HA_TOKEN}`, 'Content-Type': 'application/json' },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (!res.ok) throw new Error(`HA API ${res.status}: ${(await res.text()).slice(0,200)}`);
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// הפעלה/כיבוי של ישות HA (switch/light/fan/...)
+async function haCallService(entityId, turnOn) {
+  const domain  = entityId.split('.')[0];
+  const service = turnOn ? 'turn_on' : 'turn_off';
+  return haFetch(`/services/${domain}/${service}`, 'POST', { entity_id: entityId });
+}
+
+// רשימת כל הישויות הניתנות לשליטה, עם שם ידידותי ומצב נוכחי
+const HA_CONTROLLABLE = /^(switch|light|fan|input_boolean|cover|lock|climate|script|automation)\./;
+async function haListControllable() {
+  const states = await haFetch('/states');
+  return (states || [])
+    .filter(s => HA_CONTROLLABLE.test(s.entity_id))
+    .map(s => ({
+      entity_id: s.entity_id,
+      domain:    s.entity_id.split('.')[0],
+      name:      (s.attributes && s.attributes.friendly_name) || s.entity_id,
+      state:     s.state,
+    }))
+    .sort((a, b) => a.entity_id.localeCompare(b.entity_id));
+}
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -760,6 +801,86 @@ app.get('/status', (req, res) => {
     controllers: CONTROLLERS.map(c => ({ id: c.id, name: c.name, online: controllerOnline[c.id] || false })),
   });
 });
+
+// ── HA DISCOVERY (שלב 1) — גילוי ובדיקה של מכשירי Home Assistant ──
+const HA_DISCOVERY_PAGE = `<!DOCTYPE html>
+<html lang="he" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מכשירי Home Assistant</title>
+<style>
+  body{font-family:system-ui,Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#94a3b8;font-size:13px;margin-bottom:14px}
+  input{width:100%;padding:10px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#fff;margin-bottom:12px;box-sizing:border-box}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:right;padding:8px;border-bottom:1px solid #1e293b;font-size:14px}
+  th{color:#94a3b8;font-weight:600}
+  code{background:#1e293b;padding:2px 6px;border-radius:5px;font-size:12px;cursor:pointer;color:#7dd3fc}
+  .on{color:#4ade80}.off{color:#64748b}
+  button{border:0;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px;margin-inline-start:4px}
+  .b-on{background:#16a34a;color:#fff}.b-off{background:#475569;color:#fff}
+  .err{background:#7f1d1d;color:#fecaca;padding:12px;border-radius:8px}
+  .badge{font-size:11px;background:#334155;padding:2px 6px;border-radius:4px;color:#cbd5e1}
+</style></head><body>
+<h1>🔌 מכשירי Home Assistant</h1>
+<div class="sub">כל המכשירים שניתן לשלוט בהם. לחץ הדלק/כבה לבדיקה. לחץ על ה-<code>entity_id</code> כדי להעתיק.</div>
+<input id="q" placeholder="🔍 חיפוש לפי שם או entity_id...">
+<div id="out">טוען...</div>
+<script>
+const API = location.pathname.replace(/\\/$/,'');
+let ALL = [];
+async function load(){
+  try{
+    const r = await fetch(API + '/entities');
+    const d = await r.json();
+    if(!d.ok){ document.getElementById('out').innerHTML = '<div class="err">שגיאה: '+d.error+'</div>'; return; }
+    ALL = d.entities; render();
+  }catch(e){ document.getElementById('out').innerHTML = '<div class="err">לא ניתן להתחבר ל-HA: '+e.message+'</div>'; }
+}
+function render(){
+  const q = document.getElementById('q').value.toLowerCase();
+  const rows = ALL.filter(e => e.name.toLowerCase().includes(q) || e.entity_id.toLowerCase().includes(q));
+  if(!rows.length){ document.getElementById('out').innerHTML = '<p>לא נמצאו מכשירים.</p>'; return; }
+  document.getElementById('out').innerHTML =
+    '<div class="sub">'+rows.length+' מכשירים</div><table><tr><th>שם</th><th>entity_id</th><th>סוג</th><th>מצב</th><th>בדיקה</th></tr>'+
+    rows.map(e=>'<tr><td>'+e.name+'</td><td><code onclick="navigator.clipboard.writeText(\\''+e.entity_id+'\\')">'+e.entity_id+'</code></td>'+
+    '<td><span class="badge">'+e.domain+'</span></td>'+
+    '<td class="'+(e.state==='on'?'on':'off')+'">'+e.state+'</td>'+
+    '<td><button class="b-on" onclick="ctl(\\''+e.entity_id+'\\',true)">הדלק</button>'+
+    '<button class="b-off" onclick="ctl(\\''+e.entity_id+'\\',false)">כבה</button></td></tr>').join('')+'</table>';
+}
+async function ctl(entity_id, on){
+  try{
+    const r = await fetch(API + '/control', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity_id,on})});
+    const d = await r.json();
+    if(!d.ok) alert('שגיאה: '+d.error); else setTimeout(load, 600);
+  }catch(e){ alert('שגיאה: '+e.message); }
+}
+document.getElementById('q').addEventListener('input', render);
+load();
+</script></body></html>`;
+
+app.get('/ha/entities', async (req, res) => {
+  try {
+    res.json({ ok: true, entities: await haListControllable() });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/ha/control', async (req, res) => {
+  try {
+    const { entity_id, on } = req.body || {};
+    if (!entity_id) return res.status(400).json({ ok: false, error: 'חסר entity_id' });
+    await haCallService(entity_id, !!on);
+    addServerLog({ type: 'sent', msg: `🧪 בדיקת HA: ${entity_id} → ${on ? 'ON' : 'OFF'}`, user: 'בדיקה' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get('/ha', (req, res) => res.type('html').send(HA_DISCOVERY_PAGE));
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
