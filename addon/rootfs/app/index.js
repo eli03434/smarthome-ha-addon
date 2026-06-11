@@ -21,6 +21,7 @@ function loadConfigLocal() {
     if (cfg.activeModeId !== undefined) schedulerActiveModeId = cfg.activeModeId;
     if (cfg.serverConfig)           serverConfig = cfg.serverConfig;
     if (cfg.users)                  runtimeUsers = cfg.users;
+    if (cfg.haDevices)              { haDevices = cfg.haDevices; console.log(`📂 נטענו ${haDevices.length} מכשירי HA מהדיסק`); }
     console.log('✅ הגדרות נטענו מהדיסק');
     return true;
   } catch (e) {
@@ -40,6 +41,7 @@ function saveConfigLocal() {
         activeModeId: schedulerActiveModeId,
         serverConfig,
         users: runtimeUsers,
+        haDevices,
         savedAt: new Date().toISOString(),
       };
       fs.writeFileSync(LOCAL_CONFIG, JSON.stringify(cfg, null, 2));
@@ -199,6 +201,53 @@ async function haListControllable() {
     }))
     .sort((a, b) => a.entity_id.localeCompare(b.entity_id));
 }
+
+// ── מכשירי HA המחוברים לדשבורד הראשי ────────────────────
+// כל מכשיר: { id, name, entity_id, domain }. מזהה ה-id משמש כ"ממסר"
+// בכל המערכת — הרשאות, תזמון ושליטה טלפונית עובדים עליו ללא שינוי.
+let haDevices = [];
+
+// מיפוי ON/OFF לשירות המתאים לכל סוג מכשיר
+function haServiceForState(domain, on) {
+  if (domain === 'cover') return on ? 'open_cover' : 'close_cover';
+  if (domain === 'lock')  return on ? 'unlock' : 'lock';
+  return on ? 'turn_on' : 'turn_off';
+}
+function haStateIsOn(domain, state) {
+  if (domain === 'cover') return state === 'open';
+  if (domain === 'lock')  return state === 'unlocked';
+  return state === 'on';
+}
+
+// הפעלת מכשיר HA (נקרא מתוך publishRelay כשהממסר הוא מכשיר HA)
+async function publishHADevice(dev, state) {
+  const on = state === 'ON';
+  const service = haServiceForState(dev.domain, on);
+  await haFetch(`/services/${dev.domain}/${service}`, 'POST', { entity_id: dev.entity_id });
+  relayState[dev.id] = state;
+  io.emit('relay_state', { id: dev.id, state });
+  addServerLog({ type: 'sent', msg: `📤 שרת שלח: ${dev.name} → ${state}`, user: 'שרת' });
+}
+
+// סנכרון מצב מכשירי HA — מושך מצבים מ-HA ומעדכן את הדשבורד
+async function pollHADevices() {
+  if (!haDevices.length || !HA_TOKEN) return;
+  try {
+    const states = await haFetch('/states');
+    const byId = {};
+    (states || []).forEach(s => { byId[s.entity_id] = s; });
+    haDevices.forEach(dev => {
+      const s = byId[dev.entity_id];
+      if (!s) return;
+      const val = haStateIsOn(dev.domain, s.state) ? 'ON' : 'OFF';
+      if (relayState[dev.id] !== val) {
+        relayState[dev.id] = val;
+        io.emit('relay_state', { id: dev.id, state: val });
+      }
+    });
+  } catch (e) { /* שקט — נסה שוב במחזור הבא */ }
+}
+setInterval(pollHADevices, 15000);
 
 const app = express();
 const server = http.createServer(app);
@@ -436,6 +485,9 @@ function connectMQTT() {
 }
 
 function publishRelay(relayId, state) {
+  // אם הממסר הוא מכשיר Home Assistant — נתב דרך HA במקום Tasmota/MQTT
+  const dev = haDevices.find(d => d.id === relayId);
+  if (dev) return publishHADevice(dev, state);
   return new Promise((resolve, reject) => {
     if (!mqttConnected) {
       addServerLog({ type: 'danger', msg: `❌ לא ניתן לשלוח לממסר ${relayId} — MQTT מנותק`, user: 'שרת' });
@@ -526,6 +578,8 @@ io.on('connection', (socket) => {
   console.log('🖥️ ממשק התחבר');
   socket.emit('mqtt_status', { connected: mqttConnected });
   socket.emit('all_states', relayState);
+  // שלח את רשימת מכשירי ה-HA המחוברים לדשבורד
+  if (haDevices.length) socket.emit('ha_devices', haDevices);
   // שלח מצב לכל בקר בנפרד
   CONTROLLERS.forEach(ctrl => {
     socket.emit('controller_status', { online: controllerOnline[ctrl.id] || false, controller: ctrl.name, controllerId: ctrl.id });
@@ -822,6 +876,7 @@ const HA_DISCOVERY_PAGE = `<!DOCTYPE html>
   .ctrls{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
   button{border:0;border-radius:6px;padding:7px 13px;cursor:pointer;font-size:13px}
   .b-on{background:#16a34a;color:#fff}.b-off{background:#475569;color:#fff}.b-alt{background:#2563eb;color:#fff}
+  .b-dev-add{background:#7c3aed;color:#fff}.b-dev-rm{background:#0e7490;color:#fff}
   .sl{display:flex;align-items:center;gap:8px;font-size:12px;color:#94a3b8;width:100%;margin-top:4px}
   input[type=range]{flex:1}
   .tinfo{font-size:13px;color:#cbd5e1;width:100%;margin-bottom:4px}
@@ -834,6 +889,7 @@ const HA_DISCOVERY_PAGE = `<!DOCTYPE html>
 <script>
 const API = location.pathname.replace(/\\/$/,'');
 let ALL = [];
+let DEVS = new Set();
 const MODE_HE = {off:'כבוי',cool:'קירור',heat:'חימום',auto:'אוטו',dry:'ייבוש',fan_only:'מאוורר',heat_cool:'אוטו'};
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
 function btn(label,cls,e,s,k,v){
@@ -877,7 +933,19 @@ function render(){
     '<div class="card"><div class="top"><div><span class="nm">'+esc(e.name)+'</span><span class="badge">'+e.domain+'</span><br>'+
     '<code class="cp" data-cp="'+esc(e.entity_id)+'">'+esc(e.entity_id)+'</code></div>'+
     '<div class="st '+(e.state==='on'?'on':'off')+'">'+esc(e.state)+'</div></div>'+
-    '<div class="ctrls">'+controls(e)+'</div></div>').join('');
+    '<div class="ctrls">'+controls(e)+
+      (DEVS.has(e.entity_id)
+        ? '<button class="b-dev-rm" data-rm="'+esc(e.entity_id)+'">✓ בדשבורד — הסר</button>'
+        : '<button class="b-dev-add" data-add="'+esc(e.entity_id)+'" data-nm="'+esc(e.name)+'">➕ הוסף לדשבורד</button>')+
+    '</div></div>').join('');
+}
+async function addDev(entity_id,name){
+  try{ await fetch(API+'/devices/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity_id,name})}); load(); }
+  catch(e){ alert('שגיאה: '+e.message); }
+}
+async function removeDev(entity_id){
+  try{ await fetch(API+'/devices/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity_id})}); load(); }
+  catch(e){ alert('שגיאה: '+e.message); }
 }
 async function svc(entity_id,service,data){
   try{
@@ -888,6 +956,8 @@ async function svc(entity_id,service,data){
 const out=document.getElementById('out');
 out.addEventListener('click',ev=>{
   const cp=ev.target.closest('.cp'); if(cp){ navigator.clipboard.writeText(cp.dataset.cp); cp.textContent='✓ הועתק'; setTimeout(()=>cp.textContent=cp.dataset.cp,900); return; }
+  const ad=ev.target.closest('[data-add]'); if(ad){ addDev(ad.dataset.add, ad.dataset.nm); return; }
+  const rm=ev.target.closest('[data-rm]'); if(rm){ removeDev(rm.dataset.rm); return; }
   const b=ev.target.closest('button[data-s]'); if(!b) return;
   const data=b.dataset.k?{[b.dataset.k]:(isNaN(+b.dataset.v)?b.dataset.v:+b.dataset.v)}:null;
   svc(b.dataset.e,b.dataset.s,data);
@@ -898,9 +968,10 @@ out.addEventListener('change',ev=>{
 });
 async function load(){
   try{
-    const r=await fetch(API+'/entities'); const d=await r.json();
+    const [re,rd]=await Promise.all([fetch(API+'/entities'),fetch(API+'/devices')]);
+    const d=await re.json(); const dd=await rd.json().catch(()=>({devices:[]}));
     if(!d.ok){ out.innerHTML='<div class="err">שגיאה: '+d.error+'</div>'; return; }
-    ALL=d.entities; render();
+    ALL=d.entities; DEVS=new Set((dd.devices||[]).map(x=>x.entity_id)); render();
   }catch(e){ out.innerHTML='<div class="err">לא ניתן להתחבר ל-HA: '+e.message+'</div>'; }
 }
 document.getElementById('q').addEventListener('input',render);
@@ -928,6 +999,35 @@ app.post('/ha/control', async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// ── ניהול מכשירי HA המחוברים לדשבורד (שלב 2) ──
+app.get('/ha/devices', (req, res) => res.json({ ok: true, devices: haDevices }));
+
+app.post('/ha/devices/add', async (req, res) => {
+  try {
+    const { entity_id, name } = req.body || {};
+    if (!entity_id) return res.status(400).json({ ok: false, error: 'חסר entity_id' });
+    if (!haDevices.find(d => d.entity_id === entity_id)) {
+      const domain = entity_id.split('.')[0];
+      const id = haDevices.reduce((m, d) => Math.max(m, d.id), 0) + 1;
+      haDevices.push({ id, name: name || entity_id, entity_id, domain });
+      saveConfig();
+      io.emit('ha_devices', haDevices);
+      addServerLog({ type: 'info', msg: `➕ מכשיר חובר לדשבורד: ${name || entity_id}`, user: 'מערכת' });
+    }
+    res.json({ ok: true, devices: haDevices });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/ha/devices/remove', (req, res) => {
+  const { id, entity_id } = req.body || {};
+  haDevices = haDevices.filter(d => d.id !== id && d.entity_id !== entity_id);
+  saveConfig();
+  io.emit('ha_devices', haDevices);
+  res.json({ ok: true, devices: haDevices });
 });
 
 app.get('/ha', (req, res) => res.type('html').send(HA_DISCOVERY_PAGE));

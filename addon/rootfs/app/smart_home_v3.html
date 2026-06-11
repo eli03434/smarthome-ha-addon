@@ -782,13 +782,8 @@ const controllerGroups = [
   { id: 'main',   name: 'בית — KC868-A6',     relayIds: [1,2,3,4,5,6] },
   { id: 'second', name: 'קומה שנייה — KC868-A8', relayIds: [7,8,9,10,11,12,13,14] },
 ];
-let nextProgId = 5;
-const programs = [
-  {seqId:1,id:101,name:'דוד — שבת',relay:[1],type:'zman',zman:'candles',offsetDir:'-',offsetVal:90,action:'ON',days:[5],priority:false,active:true,delay:0,modeId:0},
-  {seqId:2,id:102,name:'דוד — כיבוי לילה',relay:[1],type:'time',time:'23:00',action:'OFF',days:[0,1,2,3,4,5,6],priority:false,active:true,delay:0,modeId:0},
-  {seqId:3,id:103,name:'בוקר טוב',relay:[2,3],type:'time',time:'07:00',action:'ON',days:[0,1,2,3,4],priority:false,active:true,delay:30,modeId:0},
-  {seqId:4,id:104,name:'אורחים — חד פעמי',relay:[3],type:'time',time:'18:30',action:'ON',days:[3],priority:true,active:true,delay:0,modeId:0},
-];
+let nextProgId = 1;
+const programs = [];
 const modes = [
   {id:0,name:'רגיל'},
   {id:1,name:'מצב חופשה'},
@@ -864,7 +859,8 @@ function applyPermissions() {
 
 function canControlRelay(relayId) {
   if (!currentUser) return false;
-  if (!currentUser.relays.includes(relayId)) return false;
+  // אדמין שולט בכל המכשירים; משתמש רגיל מוגבל לרשימת המכשירים שלו
+  if (currentUser.role !== 'admin' && !currentUser.relays.includes(relayId)) return false;
   if (currentUser.allowedHours) {
     const h = new Date().getHours();
     if (h < currentUser.allowedHours.from || h >= currentUser.allowedHours.to) {
@@ -929,6 +925,22 @@ function connectMQTT() {
 
   socket.on('server_config', (d) => {
     applyServerConfig(d);
+  });
+
+  // רשימת מכשירי Home Assistant שחוברו — בונה מחדש את מערך הממסרים
+  socket.on('ha_devices', (devs) => {
+    if (!Array.isArray(devs) || !devs.length) return;
+    relays.length = 0;
+    controllerGroups.length = 0;
+    devs.forEach(d => relays.push({ id: d.id, name: d.name, state: false, ctrl: 'ha', entity_id: d.entity_id, domain: d.domain }));
+    controllerGroups.push({ id: 'ha', name: 'המכשירים שלי', relayIds: devs.map(d => d.id) });
+    // שמות מותאמים אישית מהקונפיג גוברים על שמות ברירת המחדל מ-HA
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) { const c = JSON.parse(raw); if (c.relayNames) c.relayNames.forEach(rn => { const r = relays.find(x => x.id === rn.id); if (r) r.name = rn.name; }); }
+    } catch (e) {}
+    if (typeof renderRelays === 'function') renderRelays();
+    if (typeof applyPermissions === 'function' && currentUser) applyPermissions();
   });
 
   socket.on('server_log', (entries) => {
