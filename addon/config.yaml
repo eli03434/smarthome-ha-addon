@@ -1,15 +1,12 @@
 name: Smart Home Controller
-version: "1.0.1"
+version: "1.0.2"
 slug: smarthome
 description: בקרת בית חכם — ממסרים, תזמון לפי זמנים הלכתיים, ניהול משתמשים והרשאות
 url: https://github.com/eli03434/smarthome-ha-addon
-# ── ארכיטקטורות נתמכות (Raspberry Pi = aarch64/armv7) ──
+# ── ארכיטקטורות נתמכות (Raspberry Pi 3/4/5 = aarch64, Mini-PC = amd64) ──
 arch:
   - aarch64
   - amd64
-  - armv7
-  - armhf
-  - i386
 startup: application
 boot: auto
 init: false
