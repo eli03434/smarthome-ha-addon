@@ -5,6 +5,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { Server } = require('socket.io');
+const WebSocket = require('ws');
 const { HOLIDAY_CALENDAR } = require('./calendar_data.js');
 
 // ── LOCAL CONFIG PERSISTENCE (Home Assistant add-on) ─────
@@ -158,6 +159,7 @@ async function loadConfig() {
     await loadConfigFromGitHub();
     saveConfigLocal(); // שמור עותק מקומי לפעם הבאה
   }
+  migrateHaDeviceIds();
 }
 
 // ── HOME ASSISTANT API ───────────────────────────────────
@@ -203,9 +205,28 @@ async function haListControllable() {
 }
 
 // ── מכשירי HA המחוברים לדשבורד הראשי ────────────────────
-// כל מכשיר: { id, name, entity_id, domain }. מזהה ה-id משמש כ"ממסר"
-// בכל המערכת — הרשאות, תזמון ושליטה טלפונית עובדים עליו ללא שינוי.
+// כל מכשיר: { id, name, entity_id, domain, customName? }. מזהה ה-id משמש
+// כ"ממסר" בכל המערכת — הרשאות, תזמון ושליטה טלפונית עובדים עליו ללא שינוי.
+// מזהי HA מתחילים מ-1000 ומעלה כדי שלא יתנגשו עם ממסרי ה-KC868 (1‑14)
+// שמוצגים יחד איתם באותו מסך.
 let haDevices = [];
+const HA_ID_BASE = 1000;
+
+function nextHaId() {
+  return haDevices.reduce((m, d) => Math.max(m, d.id), HA_ID_BASE) + 1;
+}
+
+// מיגרציה — מכשירי HA ישנים שנשמרו עם מזהה נמוך (מתנגש עם ממסרי KC868)
+function migrateHaDeviceIds() {
+  let changed = false;
+  haDevices.forEach(d => {
+    if (d.id <= HA_ID_BASE) { d.id = nextHaId(); changed = true; }
+  });
+  if (changed) {
+    console.log('🔁 מזהי מכשירי HA הוסבו לטווח 1000+ למניעת התנגשות עם ממסרי הבקרים');
+    saveConfigLocal();
+  }
+}
 
 // מיפוי ON/OFF לשירות המתאים לכל סוג מכשיר
 function haServiceForState(domain, on) {
@@ -214,8 +235,10 @@ function haServiceForState(domain, on) {
   return on ? 'turn_on' : 'turn_off';
 }
 function haStateIsOn(domain, state) {
-  if (domain === 'cover') return state === 'open';
-  if (domain === 'lock')  return state === 'unlocked';
+  if (domain === 'cover')   return state === 'open';
+  if (domain === 'lock')    return state === 'unlocked';
+  // climate/מזגן — נחשב "פועל" בכל מצב שאינו כבוי/לא-זמין
+  if (domain === 'climate') return state !== 'off' && state !== 'unavailable' && state !== 'unknown';
   return state === 'on';
 }
 
@@ -229,25 +252,91 @@ async function publishHADevice(dev, state) {
   addServerLog({ type: 'sent', msg: `📤 שרת שלח: ${dev.name} → ${state}`, user: 'שרת' });
 }
 
-// סנכרון מצב מכשירי HA — מושך מצבים מ-HA ומעדכן את הדשבורד
+// עדכון מצב + שם של מכשיר HA יחיד — נקרא גם מ-WebSocket (זמן אמת) וגם מסקירה.
+// מחזיר true אם שם המכשיר השתנה (כדי לשדר מחדש את רשימת המכשירים).
+function applyHaState(entity_id, state, attributes) {
+  let nameChanged = false;
+  haDevices.forEach(dev => {
+    if (dev.entity_id !== entity_id) return;
+    // מצב הפעלה
+    const val = haStateIsOn(dev.domain, state) ? 'ON' : 'OFF';
+    if (relayState[dev.id] !== val) {
+      relayState[dev.id] = val;
+      io.emit('relay_state', { id: dev.id, state: val });
+    }
+    // שם — סנכרן friendly_name מ-HA אלא אם המשתמש קבע שם ידני
+    const fname = attributes && attributes.friendly_name;
+    if (fname && !dev.customName && dev.name !== fname) {
+      dev.name = fname;
+      nameChanged = true;
+    }
+  });
+  return nameChanged;
+}
+
+// סנכרון מצב מכשירי HA — מושך מצבים מ-HA ומעדכן את הדשבורד.
+// משמש כ-fallback וכרענון תקופתי לצד עדכוני ה-WebSocket בזמן אמת.
 async function pollHADevices() {
   if (!haDevices.length || !HA_TOKEN) return;
   try {
     const states = await haFetch('/states');
     const byId = {};
     (states || []).forEach(s => { byId[s.entity_id] = s; });
+    let nameChanged = false;
     haDevices.forEach(dev => {
       const s = byId[dev.entity_id];
       if (!s) return;
-      const val = haStateIsOn(dev.domain, s.state) ? 'ON' : 'OFF';
-      if (relayState[dev.id] !== val) {
-        relayState[dev.id] = val;
-        io.emit('relay_state', { id: dev.id, state: val });
-      }
+      if (applyHaState(dev.entity_id, s.state, s.attributes)) nameChanged = true;
     });
+    if (nameChanged) { io.emit('ha_devices', haDevices); saveConfig(); }
   } catch (e) { /* שקט — נסה שוב במחזור הבא */ }
 }
-setInterval(pollHADevices, 15000);
+// רענון תקופתי בטוח (ה-WebSocket מספק את העדכון המיידי)
+setInterval(pollHADevices, 30000);
+
+// ── HA WEBSOCKET — עדכוני מצב בזמן אמת ──────────────────
+// במקום להמתין לסקירה, נרשמים לאירועי state_changed של Home Assistant
+// ומקבלים עדכון ברגע שמכשיר משנה מצב/שם — גם אם השונה בוצע מחוץ למערכת.
+let haWs = null;
+let _haWsMsgId = 1;
+let _haWsReconnect = null;
+
+function scheduleHaWsReconnect() {
+  clearTimeout(_haWsReconnect);
+  _haWsReconnect = setTimeout(connectHAWebSocket, 5000);
+}
+
+function connectHAWebSocket() {
+  if (!HA_TOKEN) { console.log('⚠️ אין SUPERVISOR_TOKEN — דילוג על WebSocket של HA'); return; }
+  let ws;
+  try { ws = new WebSocket('ws://supervisor/core/websocket'); }
+  catch (e) { console.error('❌ שגיאת פתיחת WebSocket ל-HA:', e.message); scheduleHaWsReconnect(); return; }
+  haWs = ws;
+
+  ws.on('message', (raw) => {
+    let msg; try { msg = JSON.parse(raw.toString()); } catch { return; }
+    if (msg.type === 'auth_required') {
+      ws.send(JSON.stringify({ type: 'auth', access_token: HA_TOKEN }));
+    } else if (msg.type === 'auth_ok') {
+      console.log('✅ WebSocket של HA מאומת — נרשם לאירועי מצב');
+      ws.send(JSON.stringify({ id: _haWsMsgId++, type: 'subscribe_events', event_type: 'state_changed' }));
+      pollHADevices(); // משיכת מצב התחלתי
+    } else if (msg.type === 'auth_invalid') {
+      console.error('❌ אימות WebSocket של HA נכשל:', msg.message);
+    } else if (msg.type === 'event' && msg.event && msg.event.event_type === 'state_changed') {
+      const d = msg.event.data;
+      if (d && d.new_state) {
+        if (applyHaState(d.entity_id, d.new_state.state, d.new_state.attributes)) {
+          io.emit('ha_devices', haDevices);
+          saveConfig();
+        }
+      }
+    }
+  });
+
+  ws.on('close', () => { console.log('⚠️ WebSocket של HA נסגר — מנסה שוב...'); scheduleHaWsReconnect(); });
+  ws.on('error', (e) => { console.error('❌ שגיאת WebSocket של HA:', e.message); });
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -1010,11 +1099,14 @@ app.post('/ha/devices/add', async (req, res) => {
     if (!entity_id) return res.status(400).json({ ok: false, error: 'חסר entity_id' });
     if (!haDevices.find(d => d.entity_id === entity_id)) {
       const domain = entity_id.split('.')[0];
-      const id = haDevices.reduce((m, d) => Math.max(m, d.id), 0) + 1;
-      haDevices.push({ id, name: name || entity_id, entity_id, domain });
+      const id = nextHaId();
+      // השם ההתחלתי הוא friendly_name של HA; הוא יתעדכן אוטומטית בסנכרון
+      // (customName=false). רק שינוי שם ידני דרך /ha/devices/rename "ננעל".
+      haDevices.push({ id, name: name || entity_id, entity_id, domain, customName: false });
       saveConfig();
       io.emit('ha_devices', haDevices);
       addServerLog({ type: 'info', msg: `➕ מכשיר חובר לדשבורד: ${name || entity_id}`, user: 'מערכת' });
+      pollHADevices(); // משוך מצב נוכחי מיד כדי שהכרטיס יציג מצב אמיתי
     }
     res.json({ ok: true, devices: haDevices });
   } catch (e) {
@@ -1025,6 +1117,18 @@ app.post('/ha/devices/add', async (req, res) => {
 app.post('/ha/devices/remove', (req, res) => {
   const { id, entity_id } = req.body || {};
   haDevices = haDevices.filter(d => d.id !== id && d.entity_id !== entity_id);
+  saveConfig();
+  io.emit('ha_devices', haDevices);
+  res.json({ ok: true, devices: haDevices });
+});
+
+// שינוי שם ידני למכשיר HA — מסומן כ-customName כדי שלא יידרס ע"י friendly_name
+app.post('/ha/devices/rename', (req, res) => {
+  const { id, entity_id, name } = req.body || {};
+  const dev = haDevices.find(d => d.id === id || d.entity_id === entity_id);
+  if (!dev) return res.status(404).json({ ok: false, error: 'מכשיר לא נמצא' });
+  dev.name = (name && name.trim()) || dev.name;
+  dev.customName = true;
   saveConfig();
   io.emit('ha_devices', haDevices);
   res.json({ ok: true, devices: haDevices });
@@ -1044,4 +1148,5 @@ server.listen(PORT, async () => {
     console.log('🔑 סיסמת האדמין סונכרנה מהגדרות התוסף');
   }
   connectMQTT();
+  connectHAWebSocket();
 });

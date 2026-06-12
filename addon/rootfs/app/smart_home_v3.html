@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>בית חכם — KC868</title>
+<title>בית חכם — מרכז בקרה</title>
 <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
   <style>
   @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap');
@@ -163,6 +163,14 @@
     padding: 2px 7px; border-radius: 8px; cursor: pointer; transition: color 0.2s;
   }
   .prog-count:hover { color: var(--accent); }
+  .relay-num { display: flex; align-items: center; gap: 5px; }
+  .relay-gear {
+    background: transparent; border: 1px solid var(--border); color: var(--text2);
+    border-radius: 6px; width: 26px; height: 26px; font-size: 14px; cursor: pointer;
+    line-height: 1; transition: all 0.2s; flex-shrink: 0;
+  }
+  .relay-gear:hover { color: var(--accent); border-color: var(--border2); background: var(--surface2); }
+  .ctrl-sep-count { margin-inline-start: auto; font-size: 12px; color: var(--muted); font-weight: 600; }
 
   /* QUICK ACTIONS */
   .quick-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -408,6 +416,40 @@
   .mode-chip { padding: 3px 10px; border-radius: 20px; font-size: 13px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; font-family: 'Heebo', sans-serif; transition: all 0.2s; }
   .mode-chip.sel { background: rgba(167,139,250,0.13); color: var(--accent3); border-color: rgba(167,139,250,0.32); }
 
+  /* DEVICE MANAGER MODAL */
+  .modal-x { background: transparent; border: none; color: var(--muted); font-size: 18px; cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+  .modal-x:hover { color: var(--text); background: var(--surface2); }
+  .dev-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .dev-toolbar .form-input { flex: 1; margin: 0; }
+  .dev-hint { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .dev-list { max-height: 62vh; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }
+  .dev-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 11px; padding: 11px 13px; }
+  .dev-card.added { border-color: rgba(52,211,153,0.3); background: rgba(52,211,153,0.04); }
+  .dev-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .dev-id { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .dev-name { font-size: 15px; font-weight: 700; color: var(--text); }
+  .dev-badge { font-size: 11px; background: var(--surface3); color: var(--text2); border-radius: 5px; padding: 1px 7px; width: fit-content; }
+  .dev-ent { font-size: 11px; color: var(--accent); background: var(--bg); padding: 2px 6px; border-radius: 5px; cursor: pointer; direction: ltr; width: fit-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .dev-ent:hover { color: var(--text); }
+  .dev-state { font-size: 13px; font-weight: 600; white-space: nowrap; direction: ltr; }
+  .dev-state.on { color: var(--on-color); }
+  .dev-state.off { color: var(--muted); }
+  .dev-ctrls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+  .dev-ctrls button { border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px; font-family: 'Heebo', sans-serif; transition: opacity 0.2s; }
+  .dev-ctrls button:hover { opacity: 0.85; }
+  .db-on { background: var(--accent2); color: #07221a; font-weight: 600; }
+  .db-off { background: var(--surface3); color: var(--text2); }
+  .db-alt { background: var(--accent); color: #fff; }
+  .db-sl { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); width: 100%; margin-top: 2px; }
+  .db-sl input[type=range] { flex: 1; }
+  .db-info { font-size: 13px; color: var(--text2); width: 100%; margin-bottom: 2px; }
+  .dev-actions { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border); }
+  .dev-actions button { border: 0; border-radius: 7px; padding: 7px 14px; cursor: pointer; font-size: 13px; font-weight: 600; font-family: 'Heebo', sans-serif; }
+  .db-add { background: var(--accent); color: #fff; }
+  .db-rm { background: var(--surface3); color: var(--text2); }
+  .dev-err { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; padding: 12px; border-radius: 8px; font-size: 14px; }
+  .dev-empty { color: var(--muted); padding: 16px; text-align: center; }
+
   /* TOAST */
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px; padding: 8px 16px; font-size: 14px; color: var(--text); z-index: 300; transition: transform 0.3s; pointer-events: none; }
   .toast.show { transform: translateX(-50%) translateY(0); }
@@ -485,6 +527,7 @@
       <button class="quick-btn" onclick="morningMode()">🌅 בוקר טוב</button>
     </div>
     <div class="relay-grid" id="relay-grid"></div>
+    <button class="add-btn" onclick="openDeviceModal()">➕ הוסף מכשיר מ-Home Assistant</button>
   </div>
 
   <!-- PROGRAMS TAB -->
@@ -677,6 +720,25 @@
   </div>
 </div>
 
+<!-- DEVICE MANAGER MODAL — גילוי, הוספה ושליטה מתקדמת במכשירי HA -->
+<div class="modal-overlay" id="device-overlay">
+  <div class="modal" style="width:740px">
+    <div class="modal-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <span>🔌 מכשירי Home Assistant</span>
+      <button class="modal-x" onclick="closeDeviceModal()" title="סגור">✕</button>
+    </div>
+    <div class="dev-toolbar">
+      <input id="dev-search" class="form-input" placeholder="🔍 חיפוש לפי שם או entity_id..." oninput="renderDeviceList()">
+      <button class="icon-btn" onclick="loadDeviceList()">🔄 רענן</button>
+    </div>
+    <div class="dev-hint">לחץ ➕ כדי להוסיף מכשיר לדשבורד. מכשיר מחובר ניתן להפעיל גם מהמסך הראשי וגם לשבץ בתוכניות.</div>
+    <div id="device-list" class="dev-list">טוען...</div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeDeviceModal()">סגור</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="calendar_data.js"></script>
@@ -796,6 +858,24 @@ let activeModeId = 0;
 let currentUser = null; // המשתמש המחובר כרגע — מגיע מהשרת
 let mqttClient = null;
 let socket = null;
+// בסיס הנתיב ל-API (עובד בגישה ישירה וגם דרך Ingress של HA)
+const API_BASE = location.pathname.replace(/\/[^/]*$/, '');
+const _haStateCache = {}; // id → bool, מצב אחרון של כל ממסר/מכשיר
+
+// ── סוגי מכשירי HA — אייקון + תווית בעברית (משמש בכרטיסים ובמודאל) ──
+const HA_TYPE = {
+  light:{icon:'💡',label:'תאורה'}, switch:{icon:'🔌',label:'מתג'},
+  fan:{icon:'🌀',label:'מאוורר'}, climate:{icon:'🌡️',label:'מזגן'},
+  cover:{icon:'🪟',label:'תריס'}, lock:{icon:'🔒',label:'מנעול'},
+  input_boolean:{icon:'🔘',label:'מתג וירטואלי'}, script:{icon:'▶️',label:'סקריפט'},
+  automation:{icon:'⚙️',label:'אוטומציה'}
+};
+const CTRL_ICON = { ha:'🏠', main:'🔌', second:'🔌' };
+function escAttr(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
+function relayBadge(r){
+  if(r.ctrl==='ha'){ const t=HA_TYPE[r.domain]||{icon:'🔌',label:r.domain||'מכשיר'}; return `${t.icon} ${t.label}`; }
+  return `ממסר ${r.id}`;
+}
 let zmanim = {};
 const logEntries = [];
 let editingProgId = null;
@@ -927,20 +1007,26 @@ function connectMQTT() {
     applyServerConfig(d);
   });
 
-  // רשימת מכשירי Home Assistant שחוברו — בונה מחדש את מערך הממסרים
+  // רשימת מכשירי Home Assistant שחוברו — ממוזגת לצד ממסרי ה-KC868
+  // (לא מוחקת אותם). השרת הוא מקור האמת לשמות מכשירי HA.
   socket.on('ha_devices', (devs) => {
-    if (!Array.isArray(devs) || !devs.length) return;
-    relays.length = 0;
-    controllerGroups.length = 0;
-    devs.forEach(d => relays.push({ id: d.id, name: d.name, state: false, ctrl: 'ha', entity_id: d.entity_id, domain: d.domain }));
-    controllerGroups.push({ id: 'ha', name: 'המכשירים שלי', relayIds: devs.map(d => d.id) });
-    // שמות מותאמים אישית מהקונפיג גוברים על שמות ברירת המחדל מ-HA
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) { const c = JSON.parse(raw); if (c.relayNames) c.relayNames.forEach(rn => { const r = relays.find(x => x.id === rn.id); if (r) r.name = rn.name; }); }
-    } catch (e) {}
-    if (typeof renderRelays === 'function') renderRelays();
+    if (!Array.isArray(devs)) return;
+    // הסר מכשירי HA קיימים מהמערך — נבנה מחדש מהרשימה המעודכנת
+    for (let i = relays.length - 1; i >= 0; i--) { if (relays[i].ctrl === 'ha') relays.splice(i, 1); }
+    let haGroup = controllerGroups.find(g => g.id === 'ha');
+    if (!devs.length) {
+      if (haGroup) controllerGroups.splice(controllerGroups.indexOf(haGroup), 1);
+    } else {
+      devs.forEach(d => {
+        const prev = _haStateCache[d.id];
+        relays.push({ id: d.id, name: d.name, state: prev || false, ctrl: 'ha', entity_id: d.entity_id, domain: d.domain });
+      });
+      if (!haGroup) { haGroup = { id: 'ha', name: 'מכשירי Home Assistant', relayIds: [] }; controllerGroups.push(haGroup); }
+      haGroup.relayIds = devs.map(d => d.id);
+    }
+    renderRelays();
     if (typeof applyPermissions === 'function' && currentUser) applyPermissions();
+    if (typeof refreshDeviceModal === 'function') refreshDeviceModal();
   });
 
   socket.on('server_log', (entries) => {
@@ -979,6 +1065,9 @@ function connectMQTT() {
     const nowIL = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
     const nowMin = nowIL.getHours() * 60 + nowIL.getMinutes();
     const dateKey = nowIL.toISOString().slice(0, 10);
+    // שמור את כל המצבים במטמון — כולל מכשירי HA שעדיין לא נוספו ל-relays
+    // (אירוע ha_devices מגיע מיד אחרי all_states ויקרא מהמטמון).
+    Object.keys(states).forEach(k => { _haStateCache[k] = states[k] === 'ON'; });
     relays.forEach(r => {
       const s = states[r.id];
       if (!s) return;
@@ -1003,8 +1092,9 @@ function connectMQTT() {
   });
 }
 function updateRelayUI(id,state){
+  _haStateCache[id]=state; // שמור מצב אחרון לשרידות בעת בנייה מחדש של רשימת מכשירי HA
   const r=relays.find(r=>parseInt(r.id)===id);
-  if(r&&r.state!==state){r.state=state;renderRelays();addLog('success',`ממסר ${id} (${r.name}): ${state?'ON':'OFF'}`);}
+  if(r&&r.state!==state){r.state=state;renderRelays();addLog('success',`${r.name}: ${state?'פועל':'כבוי'}`);}
 }
 function sendRelay(id, state, source='ידני') {
   if (!canControlRelay(id)) return;
@@ -1191,15 +1281,18 @@ function renderRelays(){
   controllerGroups.forEach(ctrl=>{
     const ctrlRelays=relays.filter(r=>r.ctrl===ctrl.id);
     if(!ctrlRelays.length)return;
-    html+=`<div class="ctrl-separator"><span class="ctrl-sep-label">🔌 ${ctrl.name}</span></div>`;
+    const icon=CTRL_ICON[ctrl.id]||'🔌';
+    html+=`<div class="ctrl-separator"><span class="ctrl-sep-label">${icon} ${ctrl.name}</span><span class="ctrl-sep-count">${ctrlRelays.length} מכשירים</span></div>`;
     html+=ctrlRelays.map(r=>{
       const cnt=programs.filter(p=>p.relay.includes(r.id)&&p.active&&isProgEffective(p)).length;
+      const isHa=r.ctrl==='ha';
       return `<div class="relay-card ${r.state?'relay-on':''}" id="card-${r.id}">
       <div class="relay-header">
-        <span class="relay-num">ממסר ${r.id}</span>
+        <span class="relay-num">${relayBadge(r)}</span>
+        ${isHa?`<button class="relay-gear" title="שליטה מתקדמת" onclick="openDeviceModal('${escAttr(r.entity_id)}')">⚙</button>`:''}
       </div>
-      <input class="relay-name-input" value="${r.name}"
-        onchange="saveRelayName(${r.id},this.value)" placeholder="שם הממסר...">
+      <input class="relay-name-input" value="${escAttr(r.name)}"
+        onchange="saveRelayName(${r.id},this.value)" placeholder="שם המכשיר...">
       <div class="relay-controls">
         <label class="toggle-switch">
           <input type="checkbox" ${r.state?'checked':''} onchange="sendRelay(${r.id},this.checked)">
@@ -1220,7 +1313,14 @@ function renderRelays(){
 }
 function saveRelayName(id,name){
   const r=relays.find(x=>x.id===id);
-  if(r){r.name=name;renderPrograms();renderTimeline();saveLS();}
+  if(!r)return;
+  r.name=name;
+  if(r.ctrl==='ha'){
+    // מכשיר HA — השם נשמר בשרת (מקור האמת) ומסומן כשם ידני שלא יידרס
+    fetch(API_BASE+'/ha/devices/rename',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id,name})}).catch(()=>{});
+  }
+  renderPrograms();renderTimeline();saveLS();
 }
 function highlightRelayProgs(relayId){
   setTimeout(()=>{
@@ -2108,6 +2208,130 @@ function toast(msg){
   t.textContent=msg;t.className='toast show';
   clearTimeout(t._tid);t._tid=setTimeout(()=>t.classList.remove('show'),2600);
 }
+
+// ── DEVICE MANAGER — גילוי, הוספה ושליטה מתקדמת במכשירי HA ──
+let _devAll = [];           // כל הישויות הניתנות לשליטה ב-HA
+let _devAdded = new Set();  // entity_id-ים שכבר מחוברים לדשבורד
+let _devModalOpen = false;
+const MODE_HE = {off:'כבוי',cool:'קירור',heat:'חימום',auto:'אוטו',dry:'ייבוש',fan_only:'מאוורר',heat_cool:'אוטו'};
+
+function openDeviceModal(prefillEntity){
+  if (currentUser && currentUser.role !== 'admin') { toast('רק מנהל יכול להוסיף מכשירים'); return; }
+  document.getElementById('device-overlay').classList.add('open');
+  _devModalOpen = true;
+  document.getElementById('dev-search').value = prefillEntity || '';
+  loadDeviceList();
+}
+function closeDeviceModal(){
+  document.getElementById('device-overlay').classList.remove('open');
+  _devModalOpen = false;
+}
+function refreshDeviceModal(){ if(_devModalOpen) loadDeviceList(); }
+
+async function loadDeviceList(){
+  const box = document.getElementById('device-list');
+  try{
+    const [re,rd] = await Promise.all([fetch(API_BASE+'/ha/entities'), fetch(API_BASE+'/ha/devices')]);
+    const d = await re.json();
+    const dd = await rd.json().catch(()=>({devices:[]}));
+    if(!d.ok){ box.innerHTML = '<div class="dev-err">שגיאה בטעינת מכשירים: '+escAttr(d.error)+'</div>'; return; }
+    _devAll = d.entities || [];
+    _devAdded = new Set((dd.devices||[]).map(x=>x.entity_id));
+    renderDeviceList();
+  }catch(e){ box.innerHTML = '<div class="dev-err">לא ניתן להתחבר ל-Home Assistant: '+escAttr(e.message)+'</div>'; }
+}
+
+function devBtn(label,cls,e,s,k,v){
+  return '<button class="'+cls+'" data-e="'+escAttr(e)+'" data-s="'+s+'"'+(k!=null?(' data-k="'+k+'" data-v="'+escAttr(v)+'"'):'')+'>'+label+'</button>';
+}
+function devControls(e){
+  const id=e.entity_id, a=e.attributes||{};
+  if(e.domain==='cover'){
+    let h=devBtn('▲ פתח','db-on',id,'open_cover')+devBtn('■ עצור','db-off',id,'stop_cover')+devBtn('▼ סגור','db-off',id,'close_cover');
+    if(a.current_position!=null) h+='<div class="db-sl">מיקום <input type="range" min="0" max="100" value="'+a.current_position+'" data-e="'+escAttr(id)+'" data-s="set_cover_position" data-k="position"><span>'+a.current_position+'%</span></div>';
+    return h;
+  }
+  if(e.domain==='climate'){
+    const cur=a.current_temperature, tgt=a.temperature, modes=a.hvac_modes||[];
+    let h='<div class="db-info">🌡️ נוכחי: '+(cur!=null?cur+'°':'—')+' &nbsp;|&nbsp; יעד: <b>'+(tgt!=null?tgt+'°':'—')+'</b></div>';
+    h+=modes.map(m=>devBtn(MODE_HE[m]||m,(e.state===m?'db-on':'db-off'),id,'set_hvac_mode','hvac_mode',m)).join('');
+    if(tgt!=null) h+='<div class="db-sl">'+devBtn('− טמפ׳','db-alt',id,'set_temperature','temperature',tgt-1)+devBtn('+ טמפ׳','db-alt',id,'set_temperature','temperature',tgt+1)+'</div>';
+    return h;
+  }
+  if(e.domain==='light'){
+    let h=devBtn('הדלק','db-on',id,'turn_on')+devBtn('כבה','db-off',id,'turn_off');
+    const pct=a.brightness!=null?Math.round(a.brightness/2.55):0;
+    h+='<div class="db-sl">בהירות <input type="range" min="0" max="100" value="'+pct+'" data-e="'+escAttr(id)+'" data-s="turn_on" data-k="brightness_pct"><span>'+pct+'%</span></div>';
+    return h;
+  }
+  if(e.domain==='fan'){
+    let h=devBtn('הדלק','db-on',id,'turn_on')+devBtn('כבה','db-off',id,'turn_off');
+    if(a.percentage!=null) h+='<div class="db-sl">מהירות <input type="range" min="0" max="100" value="'+a.percentage+'" data-e="'+escAttr(id)+'" data-s="set_percentage" data-k="percentage"><span>'+a.percentage+'%</span></div>';
+    return h;
+  }
+  if(e.domain==='lock') return devBtn('🔓 שחרר','db-on',id,'unlock')+devBtn('🔒 נעל','db-off',id,'lock');
+  if(e.domain==='script') return devBtn('▶ הפעל','db-on',id,'turn_on');
+  if(e.domain==='automation') return devBtn('▶ הפעל','db-on',id,'trigger')+devBtn('הדלק','db-on',id,'turn_on')+devBtn('כבה','db-off',id,'turn_off');
+  return devBtn('הדלק','db-on',id,'turn_on')+devBtn('כבה','db-off',id,'turn_off');
+}
+function renderDeviceList(){
+  const box = document.getElementById('device-list');
+  const q = (document.getElementById('dev-search').value||'').toLowerCase();
+  const rows = _devAll.filter(e=>e.name.toLowerCase().includes(q)||e.entity_id.toLowerCase().includes(q));
+  if(!rows.length){ box.innerHTML = '<div class="dev-empty">לא נמצאו מכשירים תואמים.</div>'; return; }
+  box.innerHTML = rows.map(e=>{
+    const t = HA_TYPE[e.domain] || {icon:'🔌',label:e.domain};
+    const added = _devAdded.has(e.entity_id);
+    const on = ['on','open','unlocked'].includes(e.state) || (e.domain==='climate' && e.state!=='off' && e.state!=='unavailable');
+    return `<div class="dev-card${added?' added':''}">
+      <div class="dev-top">
+        <div class="dev-id">
+          <span class="dev-name">${t.icon} ${escAttr(e.name)}</span>
+          <span class="dev-badge">${t.label}</span>
+          <code class="dev-ent" data-cp="${escAttr(e.entity_id)}">${escAttr(e.entity_id)}</code>
+        </div>
+        <span class="dev-state ${on?'on':'off'}">${escAttr(e.state)}</span>
+      </div>
+      <div class="dev-ctrls">${devControls(e)}</div>
+      <div class="dev-actions">${added
+        ? '<button class="db-rm" data-rm="'+escAttr(e.entity_id)+'">✓ בדשבורד — הסר</button>'
+        : '<button class="db-add" data-add="'+escAttr(e.entity_id)+'" data-nm="'+escAttr(e.name)+'">➕ הוסף לדשבורד</button>'}</div>
+    </div>`;
+  }).join('');
+}
+async function devAddEntity(entity_id,name){
+  try{ await fetch(API_BASE+'/ha/devices/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity_id,name})}); toast('המכשיר נוסף לדשבורד'); loadDeviceList(); }
+  catch(e){ toast('שגיאה: '+e.message); }
+}
+async function devRemoveEntity(entity_id){
+  try{ await fetch(API_BASE+'/ha/devices/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity_id})}); toast('המכשיר הוסר מהדשבורד'); loadDeviceList(); }
+  catch(e){ toast('שגיאה: '+e.message); }
+}
+async function devControl(entity_id,service,data){
+  try{
+    const r = await fetch(API_BASE+'/ha/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity_id,service,data})});
+    const d = await r.json(); if(!d.ok) toast('שגיאה: '+d.error); else setTimeout(loadDeviceList,700);
+  }catch(e){ toast('שגיאה: '+e.message); }
+}
+(function bindDeviceList(){
+  const box = document.getElementById('device-list');
+  if(!box) return;
+  box.addEventListener('click', ev=>{
+    const cp = ev.target.closest('.dev-ent'); if(cp){ navigator.clipboard && navigator.clipboard.writeText(cp.dataset.cp); toast('הועתק: '+cp.dataset.cp); return; }
+    const ad = ev.target.closest('[data-add]'); if(ad){ devAddEntity(ad.dataset.add, ad.dataset.nm); return; }
+    const rm = ev.target.closest('[data-rm]'); if(rm){ devRemoveEntity(rm.dataset.rm); return; }
+    const b = ev.target.closest('button[data-s]'); if(!b) return;
+    const data = b.dataset.k ? {[b.dataset.k]:(isNaN(+b.dataset.v)?b.dataset.v:+b.dataset.v)} : null;
+    devControl(b.dataset.e, b.dataset.s, data);
+  });
+  box.addEventListener('change', ev=>{
+    const r = ev.target.closest('input[data-s]'); if(!r) return;
+    devControl(r.dataset.e, r.dataset.s, {[r.dataset.k]:+r.value});
+  });
+  // סגירת המודאל בלחיצה על הרקע
+  const ov = document.getElementById('device-overlay');
+  if(ov) ov.addEventListener('click', ev=>{ if(ev.target===ov) closeDeviceModal(); });
+})();
 </script>
 </body>
 </html>
