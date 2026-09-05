@@ -1,7 +1,7 @@
 name: Smart Home Controller
-version: "1.1.0"
+version: "2.0.0"
 slug: smarthome
-description: בקרת בית חכם — ממסרים, תזמון לפי זמנים הלכתיים, ניהול משתמשים והרשאות
+description: בקרת בית חכם — ממסרי Tasmota, התקני Home Assistant, תזמון לפי זמנים הלכתיים, מצבים, ומענה טלפוני (ימות המשיח)
 url: https://github.com/eli03434/smarthome-ha-addon
 # ── ארכיטקטורות נתמכות (Raspberry Pi 3/4/5 = aarch64, Mini-PC = amd64) ──
 arch:
@@ -10,33 +10,49 @@ arch:
 startup: application
 boot: auto
 init: false
-# ── שירות MQTT המקומי של HA (Mosquitto) מוזרק אוטומטית ──
+# ── שירות MQTT המקומי של HA (Mosquitto) — פרטי החיבור מוזרקים אוטומטית ──
+# want (ולא need) כדי שאפשר יהיה לעבוד גם מול ברוקר חיצוני דרך mqtt_url למטה,
+# בלי לחייב התקנה של תוסף Mosquitto שלא ישמש בפועל.
 services:
-  - mqtt:need
-# ── גישה ל-API של HA (לשליטה עתידית בכל מכשירי HA, לא רק Tasmota) ──
+  - mqtt:want
+# ── גישה ל-API של HA — נדרשת לשליטה בהתקני HA (supervisor/core/api + WebSocket) ──
 homeassistant_api: true
 # ── Ingress: התוסף מופיע בתפריט הצד של HA, עם אימות מובנה ──
 ingress: true
 ingress_port: 3000
 panel_icon: mdi:home-automation
 panel_title: בית חכם
-# ── חשיפת פורט ישיר (אופציונלי — לגישה גם מחוץ ל-HA, למשל מהטלפון) ──
+# ── חשיפת פורט ישיר — חובה אם משתמשים ב"ימות המשיח": ה-webhook מגיע מבחוץ
+# ואינו יכול לעבור דרך Ingress (שדורש אימות של HA). גם שימושי לגישה ישירה מהטלפון.
 ports:
   3000/tcp: 3000
 ports_description:
-  3000/tcp: ממשק הבית החכם (גישה ישירה, מחוץ ל-Ingress)
+  3000/tcp: ממשק הבית החכם ונקודת הקצה /yemot (גישה ישירה, מחוץ ל-Ingress)
 options:
-  # סיסמת האדמין הראשוני — חובה לשנות בכל התקנה!
+  # סיסמת האדמין — תמיד תקפה לכניסה, גם אם שינית סיסמאות בממשק. חובה לשנות!
   admin_password: "changeme"
-  # מספרי טלפון מורשים לשליטה דרך "ימות המשיח", מופרדים בפסיק (אופציונלי)
-  allowed_phones: ""
-  # מיגרציה מהמערכת הישנה (GitHub) — השאר ריק לשמירה מקומית בלבד
-  github_token: ""
-  github_owner: ""
-  github_repo: ""
+  # בקרי Tasmota. topic = שם ה-MQTT של הבקר (ב-Tasmota: Configuration → MQTT)
+  controllers:
+    - id: main
+      name: בית
+      topic: tasmota_XXXXXX
+      relay_count: 6
+  # ── ימות המשיח (אופציונלי) — השאר ריק אם אין שליטה טלפונית ──
+  yemot_api_token: ""
+  yemot_api_link_url: ""
+  # ── ברוקר MQTT חיצוני (אופציונלי) — השאר ריק לשימוש ב-Mosquitto של HA ──
+  mqtt_url: ""
+  mqtt_user: ""
+  mqtt_pass: ""
 schema:
   admin_password: password
-  allowed_phones: str?
-  github_token: str?
-  github_owner: str?
-  github_repo: str?
+  controllers:
+    - id: str
+      name: str
+      topic: str
+      relay_count: int
+  yemot_api_token: str?
+  yemot_api_link_url: str?
+  mqtt_url: str?
+  mqtt_user: str?
+  mqtt_pass: str?

@@ -1,16 +1,24 @@
 configuration:
   admin_password:
     name: Admin password (change this!)
-    description: Password for the initial admin user. Always the source of truth for admin login — change it any time.
-  allowed_phones:
-    name: Allowed phone numbers
-    description: Comma-separated phone numbers allowed to control via Yemot HaMashiach. Empty = phone control disabled.
-  github_token:
-    name: GitHub Token (migration only)
-    description: Leave empty for local storage. Fill only to migrate settings from the old cloud system.
-  github_owner:
-    name: GitHub Owner (migration only)
-    description: Repository owner — migration mode only.
-  github_repo:
-    name: GitHub Repo (migration only)
-    description: Repository name — migration mode only.
+    description: Master password for the web interface. Always valid for admin login, even if passwords were changed inside the app — change it here any time to regain access.
+  controllers:
+    name: Tasmota controllers
+    description: One entry per relay board. "topic" is the controller's MQTT name (in Tasmota - Configuration > MQTT), "relay_count" is how many relays it has.
+  yemot_api_token:
+    name: Yemot HaMashiach API token (optional)
+    description: Leave empty if you do not use phone control. Needed only for syncing the caller whitelist and IVR audio files.
+  yemot_api_link_url:
+    name: Yemot HaMashiach webhook URL (optional)
+    description: The public URL Yemot calls, ending in /yemot. Requires the add-on port 3000 to be reachable from the internet (for example through a Cloudflare tunnel).
+  mqtt_url:
+    name: External MQTT broker (optional)
+    description: Leave empty to use the Mosquitto broker add-on of Home Assistant, which is configured automatically. Fill in only for an external broker, e.g. mqtt://192.168.1.50:1883
+  mqtt_user:
+    name: External MQTT username
+    description: Only used together with an external broker URL above.
+  mqtt_pass:
+    name: External MQTT password
+    description: Only used together with an external broker URL above.
+network:
+  3000/tcp: Web interface and the /yemot webhook endpoint (direct access, bypassing Ingress)
