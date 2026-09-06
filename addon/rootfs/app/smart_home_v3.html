@@ -1344,14 +1344,26 @@ function renderAll() {
 
 // ── בסיס-הנתיב של הדף ────────────────────────────────────
 // ב-Ingress של Home Assistant הדף לא יושב בשורש אלא תחת /api/hassio_ingress/<token>/, וכל
-// נתיב מוחלט (שמתחיל ב-"/") יוצא מחוץ לתוסף ונכשל. INGRESS_BASE הוא הקידומת הזו — ריק
+// נתיב מוחלט (שמתחיל ב-"/") יוצא מחוץ לתוסף ונכשל. ingressBase() מחזיר את הקידומת הזו — ריק
 // בגישה ישירה לפורט 3000, ומלא כשנכנסים מתפריט-הצד של HA. כל בקשה לשרת חייבת לעבור דרכו.
-const INGRESS_BASE = location.pathname.replace(/\/[^/]*$/, '');
+//
+// **הצהרת פונקציה ולא const — בכוונה, וזה קריטי.** connectMQTT() נקראת ב-INIT שלמעלה, כמה
+// עשרות שורות *לפני* המקום הזה בקובץ. const היה נמצא באותו רגע ב-TDZ, הקריאה הייתה זורקת
+// ReferenceError, וכל שאר הסקריפט היה מת — כולל טעינת רשימת המשתמשים, כלומר מסך כניסה עם
+// רשימה נפתחת ריקה שאי אפשר להיכנס דרכה. זו בדיוק המלכודת שמתוארת בהערה ליד serverZmanim.
+// הצהרת פונקציה מורמת (hoisted) במלואה ולכן חסינה לסדר הקריאות.
+//
+// שני שלבי הניקוי: מסירים שם-קובץ בסוף הנתיב (/…/TOKEN/smart_home_v3.html), ואז לוכסן-סוגר
+// (/…/TOKEN/). כך זה נכון גם כשה-Ingress מגיש בלי לוכסן בסוף — מקרה שבו גרסה קודמת של
+// השורה הזו הייתה חותכת את הטוקן עצמו ושולחת את ה-socket לכתובת לא קיימת.
+function ingressBase() {
+  return location.pathname.replace(/\/[^/]*\.[^/]*$/, '').replace(/\/$/, '');
+}
 
 // ── SOCKET.IO ────────────────────────────────────────────
 function connectMQTT() {
   addLog('info','מנסה להתחבר לשרת...');
-  socket = io({ path: INGRESS_BASE + '/socket.io' });
+  socket = io({ path: ingressBase() + '/socket.io' });
   socket.on('connect', () => {
     addLog('success','מחובר לשרת! המערכת מוכנה.');
     setStatus(true);
@@ -4772,7 +4784,7 @@ async function runYemotTest(){
   if (!phone) { toast('אין מתקשר לבדיקה — הוסף מתקשר ב-IVR קודם'); return; }
   resEl.textContent = 'שולח ל-/yemot...';
   try {
-    const url = `${INGRESS_BASE}/yemot?Relay=${encodeURIComponent(relay)}&Action=${encodeURIComponent(action)}&Duration=${encodeURIComponent(duration)}&ApiPhone=${encodeURIComponent(phone)}`;
+    const url = `${ingressBase()}/yemot?Relay=${encodeURIComponent(relay)}&Action=${encodeURIComponent(action)}&Duration=${encodeURIComponent(duration)}&ApiPhone=${encodeURIComponent(phone)}`;
     const res = await fetch(url);
     const text = await res.text();
     const match = text.match(/id_list_message=t-([^&]*)/);
