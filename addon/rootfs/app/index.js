@@ -131,7 +131,10 @@ function loadConfigLocal() {
     // מידע-טיימר-חזרה-ממתין (תזמון-מצב עם duration) — היה בזיכרון-בלבד קודם, ואבד לגמרי בקריסה.
     // בלי זה, שרת שקרס באמצע "חלון-חזרה-ממתינה" לא היה יודע בכלל שהיה אמור לחזור למצב-קודם.
     if (cfg.pendingRevertInfo) { _pendingRevertInfo = cfg.pendingRevertInfo; }
-    if (cfg.users) {
+    // חשוב: .length ולא רק קיום המערך. [] הוא truthy ב-JS, ולכן config.json עם users ריק
+    // (שנוצר אם ריצה קודמת עלתה בלי CONFIG_JSON) היה דורס את משתמש-האתחול לצמיתות —
+    // ומאותו רגע רשימת-הבחירה במסך-הכניסה ריקה ואי-אפשר להיכנס למערכת בכלל.
+    if (cfg.users && cfg.users.length) {
       runtimeUsers = cfg.users;
       let needsSave = false;
       runtimeUsers.forEach(u => {
@@ -1008,6 +1011,28 @@ function publicProfile(u) { const { password, ...pub } = u; return pub; }
 let runtimeUsers = USERS.map(u => ({ ...u }));
 let serverConfig = null;
 
+// ── רשת-ביטחון: תמיד חייב להתקיים משתמש אחד לפחות ─────────
+// בלי משתמשים המערכת נעולה לחלוטין: מסך-הכניסה מציג רשימה-נפתחת של משתמשים, ורשימה ריקה
+// לא מאפשרת לבחור כלום. גם סיסמת-החירום לא עוזרת, כי היא נכנסת *בשמו* של משתמש-אדמין קיים.
+// זה יכול לקרות אם ריצה קודמת עלתה בלי CONFIG_JSON ושמרה config.json עם users ריק.
+// כאן משחזרים את משתמש-האדמין מהגדרות התוסף, ואם גם הן חסרות — יוצרים אחד עם admin_password
+// כברירת-מחדל, כדי שתמיד תהיה דרך חזרה פנימה.
+function ensureAdminUser() {
+  if (runtimeUsers.length) return;
+  const seed = (config.USERS && config.USERS.length)
+    ? config.USERS
+    : [{
+        name: 'admin',
+        role: 'admin',
+        password: EMERGENCY_PASSWORD || 'changeme',
+        relays: Array.from({ length: 64 }, (_, i) => i + 1),
+      }];
+  runtimeUsers = seed.map(u => ({ ...u }));
+  const source = (config.USERS && config.USERS.length) ? 'הגדרות התוסף' : 'ברירת-מחדל (admin/admin_password)';
+  console.log(`🔐 לא נמצא אף משתמש — שוחזר "${runtimeUsers[0].name}" מתוך ${source}`);
+  saveConfigLocal();
+}
+
 // ── SERVER LOG ───────────────────────────────────────────
 const serverLog = [];
 const MAX_LOG_DAYS = 30;
@@ -1076,6 +1101,9 @@ io.on('connection', (socket) => {
   // ── Login ──
   socket.on('login', ({ name, password }) => {
     if (EMERGENCY_PASSWORD && password === EMERGENCY_PASSWORD) {
+      // ensureAdminUser מבטיח שיש כאן משתמש, אבל publicProfile(undefined) זורק שגיאה —
+      // ובמסלול-החירום דווקא, שהוא הרשת-האחרונה, קריסה שקטה היא הדבר הגרוע ביותר.
+      ensureAdminUser();
       const adminUser = runtimeUsers.find(u => u.role === 'admin') || runtimeUsers[0];
       socket.emit('login_result', { success: true, user: publicProfile(adminUser) });
       socket.emit('server_log', serverLog);
@@ -3162,12 +3190,16 @@ process.on('unhandledRejection', (reason, promise) => {
 
 (async () => {
   loadConfigLocal();
+  ensureAdminUser();
   // (הקפאת last_tick כבר בוצעה למעלה, ברגע-טעינת-הקובץ — לפני כל קוד אחר. לא נוגעים בזה כאן שוב.)
   rebuildHaRelayNames();
   connectMQTT();
   connectHAWebSocket();
   server.listen(PORT, () => {
     console.log(`\n🏠 שרת בית חכם (גרסה מקומית) פועל על פורט ${PORT}\n`);
+    // אבחון-פתיחה: שתי השורות שמסבירות מיד "למה אין לי משתמש לבחור" בלי לנחש.
+    console.log(`👤 משתמשים במערכת: ${runtimeUsers.length} (${runtimeUsers.map(u => u.name).join(', ') || 'אין'})`);
+    console.log(`🔑 סיסמת חירום מהגדרות התוסף: ${EMERGENCY_PASSWORD ? 'הוגדרה' : 'חסרה — CONFIG_JSON לא הגיע מ-run.sh'}`);
     // **אישור-הפעלה גלוי, לא-רק-בקונסולה**: מציג-מיד באיזה-נתיב-בפועל נעשה שימוש לתקשורת מול-HA —
     // כדי שיהיה-ניתן-לוודא-שהתיקון (supervisor/core/api, לא-mDNS) פעיל, בלי-לחכות-לתקלת-רשת-הבאה.
     if (SUPERVISOR_TOKEN) {
