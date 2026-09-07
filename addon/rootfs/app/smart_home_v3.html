@@ -531,14 +531,10 @@
     <div class="status-dot"></div>
     <span id="status-text">מתחבר...</span>
   </div>
-  <div class="status-pill" id="controller-pill-main" title="בית — KC868-A6">
-    <div class="status-dot" id="controller-dot-main" style="background:#6b7280"></div>
-    <span id="controller-text-main">בית...</span>
-  </div>
-  <div class="status-pill" id="controller-pill-second" title="קומה שנייה — KC868-A8">
-    <div class="status-dot" id="controller-dot-second" style="background:#6b7280"></div>
-    <span id="controller-text-second">קומה ב׳...</span>
-  </div>
+  <!-- נורית מצב לכל בקר. נבנות דינמית מאירוע relay_config לפי הבקרים שהוגדרו בהגדרות
+       התוסף — קודם היו כאן שתי נוריות קשיחות, ובקר שלישי לא היה מקבל חיווי בכלל.
+       display:contents כדי שהנוריות עצמן יישארו ילדים ישירים של הסרגל לצורכי flex. -->
+  <div id="controller-pills" style="display:contents"></div>
   <div id="theme-toggle" style="display:flex;align-items:center;gap:2px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:2px" title="בחירת סגנון תצוגה">
     <button onclick="setTheme('dark')" id="theme-btn-dark" style="border:none;border-radius:16px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">V1</button>
     <button onclick="setTheme('light')" id="theme-btn-light" style="border:none;border-radius:16px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">V2</button>
@@ -1179,7 +1175,9 @@ function loadLS() {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return;
     const d = JSON.parse(raw);
-    if (d.relayNames) d.relayNames.forEach(rn => { const r=relays.find(x=>x.id===rn.id); if(r) r.name=rn.name; });
+    // רשימת הממסרים עדיין ריקה בשלב הזה — היא מגיעה מהשרת אחרי החיבור. שומרים בצד
+    // ומחילים בתוך המטפל ב-relay_config.
+    if (d.relayNames) _savedRelayNames = d.relayNames;
     if (d.programs?.length) { programs.length=0; d.programs.forEach(p=>programs.push(migrateProg(p))); }
     if (d.modes?.length)    { modes.length=0;    d.modes.forEach(m=>modes.push(m)); }
     if (d.activeModeId !== undefined) activeModeId = d.activeModeId;
@@ -1189,41 +1187,25 @@ function loadLS() {
 }
 
 // ── STATE ────────────────────────────────────────────────
-const relays = [
-  // בקר ראשי
-  {id:1,name:'ממסר 1',state:false,ctrl:'main'},
-  {id:2,name:'ממסר 2',state:false,ctrl:'main'},
-  {id:3,name:'ממסר 3',state:false,ctrl:'main'},
-  {id:4,name:'ממסר 4',state:false,ctrl:'main'},
-  {id:5,name:'ממסר 5',state:false,ctrl:'main'},
-  {id:6,name:'ממסר 6',state:false,ctrl:'main'},
-  // בקר שני
-  {id:7,name:'ממסר ב1',state:false,ctrl:'second'},
-  {id:8,name:'ממסר ב2',state:false,ctrl:'second'},
-  {id:9,name:'ממסר ב3',state:false,ctrl:'second'},
-  {id:10,name:'ממסר ב4',state:false,ctrl:'second'},
-  {id:11,name:'ממסר ב5',state:false,ctrl:'second'},
-  {id:12,name:'ממסר ב6',state:false,ctrl:'second'},
-  {id:13,name:'ממסר ב7',state:false,ctrl:'second'},
-  {id:14,name:'ממסר ב8',state:false,ctrl:'second'},
-];
-
-// הגדרת קבוצות בקרים לתצוגה
-const controllerGroups = [
-  { id: 'main',   name: 'בית — KC868-A6',     relayIds: [1,2,3,4,5,6] },
-  { id: 'second', name: 'קומה שנייה — KC868-A8', relayIds: [7,8,9,10,11,12,13,14] },
-];
-let nextProgId = 5;
-const programs = [
-  {seqId:1,id:101,name:'דוד — שבת',relay:[1],type:'zman',zman:'candles',offsetDir:'-',offsetVal:90,action:'ON',days:[5],priority:false,active:true,delay:0,modeIds:[0]},
-  {seqId:2,id:102,name:'דוד — כיבוי לילה',relay:[1],type:'time',time:'23:00',action:'OFF',days:[0,1,2,3,4,5,6],priority:false,active:true,delay:0,modeIds:[0]},
-  {seqId:3,id:103,name:'בוקר טוב',relay:[2,3],type:'time',time:'07:00',action:'ON',days:[0,1,2,3,4],priority:false,active:true,delay:30,modeIds:[0]},
-  {seqId:4,id:104,name:'אורחים — חד פעמי',relay:[3],type:'time',time:'18:30',action:'ON',days:[3],priority:true,active:true,delay:0,modeIds:[0]},
-];
+// ── ממסרים ובקרים ────────────────────────────────────────
+// שתי הרשימות האלה מתמלאות מאירוע relay_config שהשרת שולח בחיבור, והן נגזרות
+// ישירות מרשימת controllers שבהגדרות התוסף ב-Home Assistant. קודם הן היו מקודדות
+// כאן — 14 ממסרים ושני בקרים בשמות קבועים — כך שהוספת בקר דרשה עריכת קוד, ושינוי
+// relay_count בהגדרות לא השפיע על מה שהמסך הראה. עכשיו יש מקור אמת אחד בלבד.
+// נשארות const ומתעדכנות במקום (length=0 + push) כי כל שאר הקובץ מחזיק בהן הפניה.
+const relays = [];
+const controllerGroups = [];
+// שמות ממסרים שנשמרו בדפדפן הזה. נשמרים בצד עד שהשרת ישלח את רשימת הממסרים,
+// ואז מוחלים עליה — כדי שהשם שנתת לא יידרס בכל התחברות מחדש.
+let _savedRelayNames = [];
+// מתחילים ריק. קודם ישבו כאן ארבע תוכניות דמו ושלושה מצבי דמו, והן לא היו הדגמה
+// בלבד: בכל התחברות הממשק דחף אותן לשרת, והשרת באמת הפעיל אותן — ממסר 1 נדלק לפני
+// שבת, ממסרים 2 ו-3 נדלקו ב-07:00 וכו', על חומרה אמיתית שאיש לא ביקש שתידלק.
+// מצב "רגיל" נשאר כי activeModeId מתחיל ב-0 והממשק חייב מצב אחד קיים.
+let nextProgId = 1;
+const programs = [];
 const modes = [
   {id:0,name:'רגיל'},
-  {id:1,name:'מצב חופשה'},
-  {id:2,name:'מצב אורחים'},
 ];
 let activeModeId = 0;
 // ── USERS & PERMISSIONS ──────────────────────────────────
@@ -1482,8 +1464,36 @@ function connectMQTT() {
     if (!data.connected) addLog('info','שרת מנותק מ-MQTT...');
   });
 
-  socket.on('controller_status', ({ online, controller }) => {
-    setControllerStatus(online, controller);
+  // הגדרת הבקרים והממסרים מהשרת — נגזרת מ-controllers שבהגדרות התוסף.
+  socket.on('relay_config', ({ controllers, relays: serverRelays }) => {
+    controllerGroups.length = 0;
+    (controllers || []).forEach(c => controllerGroups.push({
+      id: c.id, name: c.name, topic: c.topic,
+      relayIds: (serverRelays || []).filter(r => r.ctrl === c.id).map(r => r.id),
+    }));
+
+    // התקני HA אינם חלק מהאירוע הזה (הם מגיעים ב-ha_devices) — שומרים אותם בצד
+    // כדי שבנייה מחדש של הרשימה לא תמחק אותם מהמסך.
+    const haDevicesKept = relays.filter(r => r.ctrl === 'ha');
+    relays.length = 0;
+    (serverRelays || []).forEach(r => {
+      const saved = _savedRelayNames.find(x => x.id === r.id);
+      relays.push({
+        id: r.id,
+        name: (saved && saved.name) || r.name,
+        state: false,
+        ctrl: r.ctrl,
+        ivr: !!(saved && saved.ivr),
+      });
+    });
+    haDevicesKept.forEach(r => relays.push(r));
+
+    renderControllerPills(controllers || []);
+    renderAll();
+  });
+
+  socket.on('controller_status', ({ online, controller, controllerId }) => {
+    setControllerStatus(online, controller, controllerId);
   });
   socket.on('all_states', (states) => {
     const now = new Date();
@@ -1676,20 +1686,31 @@ function setStatus(on){
   else{pill.className='status-pill';txt.textContent='שרת מנותק';}
 }
 
-function setControllerStatus(online, controllerName) {
-  // זהה את הסיומת לפי שם הבקר
-  const isSecond = controllerName && (controllerName.includes('קומה') || controllerName.includes('second'));
-  const suffix = isSecond ? 'second' : 'main';
-  const dot = document.getElementById(`controller-dot-${suffix}`);
-  const txt = document.getElementById(`controller-text-${suffix}`);
+// בורח מתווים שישברו מאפיין HTML. שמות הבקרים מגיעים מהגדרות התוסף, ושם אפשר
+// להקליד כל דבר — כולל גרשיים, שהיו קוטעים את ה-title ומייצרים מרקאפ שבור.
+function escAttr(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+// בונה נורית מצב לכל בקר שהוגדר. קודם היו כאן שתי נוריות קבועות והשיוך נעשה בניחוש
+// לפי המילה "קומה" בשם הבקר — בקר שלישי, או שם שלא הכיל את המילה, פשוט לא קיבל חיווי.
+function renderControllerPills(ctrls) {
+  const host = document.getElementById('controller-pills');
+  if (!host) return;
+  host.innerHTML = ctrls.map(c => `<div class="status-pill" id="controller-pill-${escAttr(c.id)}" title="${escAttr(c.name)} · ${escAttr(c.topic)}">
+    <div class="status-dot" id="controller-dot-${escAttr(c.id)}" style="background:#6b7280"></div>
+    <span id="controller-text-${escAttr(c.id)}">${escAttr(c.name)}...</span>
+  </div>`).join('');
+}
+
+function setControllerStatus(online, controllerName, controllerId) {
+  const dot = document.getElementById(`controller-dot-${controllerId}`);
+  const txt = document.getElementById(`controller-text-${controllerId}`);
   if (!dot || !txt) return;
-  if (online) {
-    dot.style.background = 'var(--accent2, #4ade80)';
-    txt.textContent = isSecond ? 'קומה ב׳ מחוברת' : 'בית מחובר';
-  } else {
-    dot.style.background = '#f87171';
-    txt.textContent = isSecond ? 'קומה ב׳ מנותקת' : 'בית מנותק';
-  }
+  dot.style.background = online ? 'var(--accent2, #4ade80)' : '#f87171';
+  // ניסוח עם מפריד ולא משפט, כדי שיתאים לכל שם בקר בלי בעיית מין דקדוקי
+  // ("קומה שנייה מחובר" מול "בית מחוברת").
+  txt.textContent = `${controllerName} · ${online ? 'מחובר' : 'מנותק'}`;
 }
 
 // ── ZMANIM ───────────────────────────────────────────────
@@ -2438,9 +2459,47 @@ function addMode(){
 }
 
 // ── RENDER RELAYS ─────────────────────────────────────────
+// טקסט ההסבר שמופיע כשאין בקרים כלל — הנחיה מדויקת איפה מוסיפים אותם.
+// פונקציה ולא const: renderRelays נקראת מ-renderAll ב-INIT, הרבה לפני השורה הזו בקובץ,
+// ו-const היה שם ב-TDZ וזורק ReferenceError שמפיל את כל הסקריפט. אותה מלכודת בדיוק
+// שתועדה ליד serverZmanim ו-ingressBase.
+function noControllersHtml() { return `<div style="grid-column:1/-1;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px 24px;line-height:1.8">
+  <div style="font-size:16px;font-weight:700;margin-bottom:8px">לא הוגדר אף בקר</div>
+  <div style="font-size:14px;color:var(--text2)">הממסרים נגזרים מהגדרות התוסף. ב-Home Assistant:<br>
+  <b>Settings → Add-ons → Smart Home Controller → Configuration</b>, בשדה <code>controllers</code>:</div>
+  <pre style="direction:ltr;text-align:left;background:var(--surface2);border-radius:8px;padding:12px 14px;margin:12px 0;font-size:13px;overflow-x:auto">controllers:
+  - id: main
+    name: בית
+    topic: tasmota_D3D204
+    relay_count: 6</pre>
+  <div style="font-size:14px;color:var(--text2)">
+    <b>topic</b> — שם ה-MQTT של הבקר, בממשק ה-Tasmota תחת Configuration → MQTT.<br>
+    <b>relay_count</b> — מספר הערוצים בלוח.<br>
+    אחרי Save לחץ Restart, והממסרים יופיעו כאן מיד.
+  </div>
+</div>`; }
+
+// שורת סיכום שאומרת בדיוק אילו ממסרים המערכת מכירה ואיך מוסיפים עוד.
+function relaySupportNoteHtml(){
+  const parts = controllerGroups
+    .filter(c => c.relayIds.length)
+    .map(c => `${c.relayIds[0]}\u2013${c.relayIds[c.relayIds.length-1]} ${c.name}`);
+  const ha = relays.filter(r => r.ctrl === 'ha');
+  if (ha.length) parts.push(`${ha.length} התקני Home Assistant`);
+  return `<div style="grid-column:1/-1;font-size:13px;color:var(--muted);padding:10px 4px;line-height:1.7">
+    ממסרים מוגדרים: ${parts.join(' · ')}.
+    להוספת בקר — הגדרות התוסף ב-HA, שדה <code>controllers</code>, ואז Restart.
+    להוספת התקן של Home Assistant — לשונית «⚙️ הגדרות התקנים».
+  </div>`;
+}
+
 function renderRelays(){
   const g=document.getElementById('relay-grid');
   let html='';
+  if(!controllerGroups.length && !relays.some(r=>r.ctrl==='ha')){
+    g.innerHTML = noControllersHtml();
+    return;
+  }
   // בקרי Tasmota
   controllerGroups.forEach(ctrl=>{
     const ctrlRelays=relays.filter(r=>r.ctrl===ctrl.id);
@@ -2454,6 +2513,7 @@ function renderRelays(){
     html+=`<div class="ctrl-separator"><span class="ctrl-sep-label">🏠 התקני Home Assistant</span></div>`;
     html+=haRelays.map(r=>relayCardHtml(r)).join('');
   }
+  html+=relaySupportNoteHtml();
   g.innerHTML=html;
 }
 function relayCardHtml(r){

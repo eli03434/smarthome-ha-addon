@@ -1,5 +1,5 @@
 name: Smart Home Controller
-version: "2.0.2"
+version: "2.1.0"
 slug: smarthome
 description: בקרת בית חכם — ממסרי Tasmota, התקני Home Assistant, תזמון לפי זמנים הלכתיים, מצבים, ומענה טלפוני (ימות המשיח)
 url: https://github.com/eli03434/smarthome-ha-addon

@@ -575,6 +575,28 @@ function getControllerForRelay(globalRelayId) {
   return { type: 'tasmota', ctrl: CONTROLLERS[0], localId: globalRelayId };
 }
 
+// הגדרת הבקרים והממסרים כפי שהיא נשלחת לממשק. מקור האמת היחיד הוא רשימת controllers
+// שבהגדרות התוסף — הממשק לא מחזיק עותק משלו. כך הוספת בקר ב-Configuration מוסיפה את
+// הממסרים שלו לכל המסכים מיד, בלי לגעת בקוד. המספור גלובלי ורציף לפי סדר הבקרים:
+// הבקר הראשון תופס 1..relayCount, השני ממשיך אחריו, וכן הלאה.
+function buildRelayConfig() {
+  const relays = [];
+  let offset = 0;
+  CONTROLLERS.forEach(ctrl => {
+    for (let i = 1; i <= ctrl.relayCount; i++) {
+      const id = i + offset;
+      relays.push({ id, ctrl: ctrl.id, name: schedulerRelayNames[id] || `ממסר ${id}` });
+    }
+    offset += ctrl.relayCount;
+  });
+  return {
+    controllers: CONTROLLERS.map(c => ({
+      id: c.id, name: c.name, topic: c.topic, relayCount: c.relayCount,
+    })),
+    relays,
+  };
+}
+
 // ── IVR URL — כעת מצביע לדומיין המקומי (Cloudflare Tunnel) ─
 const YEMOT_API_LINK_URL = process.env.YEMOT_API_LINK_URL || 'https://smarthome.example.com/yemot';
 // "בסיס" בלי ה-/yemot בסוף — כדי לבנות נתיבים ברמה-עליונה (למשל /schedule) ולא רק תת-נתיבים תחת
@@ -1072,6 +1094,10 @@ function addServerLog(entry, excludeSocket) {
 // ── SOCKET.IO ────────────────────────────────────────────
 io.on('connection', (socket) => {
   console.log('🖥️ ממשק התחבר');
+  // **חייב להישלח ראשון**: הממשק בונה את רשימת הממסרים שלו מהאירוע הזה. all_states
+  // ו-controller_status שאחריו מתייחסים לממסרים לפי מזהה, ואם הרשימה עוד ריקה הם
+  // פשוט נופלים לרצפה ומצב ההדלקה ההתחלתי לא מוצג.
+  socket.emit('relay_config', buildRelayConfig());
   socket.emit('mqtt_status', { connected: mqttConnected });
   socket.emit('all_states', relayState);
   CONTROLLERS.forEach(ctrl => {
